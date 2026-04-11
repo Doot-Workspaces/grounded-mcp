@@ -1,0 +1,633 @@
+/**
+ * Consolidated Calendar module
+ * Reduces from 5 tools to 1 tool with operation parameters
+ */
+
+const { ensureAuthenticated } = require('../auth');
+const { callGraphAPI } = require('../utils/graph-api');
+const config = require('../config');
+const { safeTool } = require('../utils/errors');
+
+/**
+ * Check if a datetime string already has a timezone indicator (Z, +offset, or -offset).
+ * Prevents double-appending Z to strings that already carry tz info.
+ */
+function hasTzIndicator(dt) {
+  if (!dt) return false;
+  if (dt.endsWith('Z')) return true;
+  // Check for +HH:MM or -HH:MM offset at end (e.g. "...T15:00:00-05:00")
+  return /[+-]\d{2}:\d{2}$/.test(dt);
+}
+
+/**
+ * Unified calendar handler for all calendar operations
+ */
+async function handleCalendar(args) {
+  const { operation, ...params } = args;
+  
+  if (!operation) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: "Missing required parameter: operation. Valid operations are: list, create, get, update, delete" 
+      }]
+    };
+  }
+  
+  try {
+    const accessToken = await ensureAuthenticated();
+    
+    switch (operation) {
+      case 'list':
+        return await listCalendarEvents(accessToken, params);
+      case 'create':
+        return await createCalendarEvent(accessToken, params);
+      case 'find':
+        return await findMeetingTimes(accessToken, params);
+      case 'get':
+        return await getCalendarEvent(accessToken, params);
+      case 'update':
+        return await updateCalendarEvent(accessToken, params);
+      case 'delete':
+        return await deleteCalendarEvent(accessToken, params);
+      default:
+        return {
+          content: [{ 
+            type: "text", 
+            text: `Invalid operation: ${operation}. Valid operations are: list, create, get, update, delete` 
+          }]
+        };
+    }
+  } catch (error) {
+    console.error(`Error in calendar ${operation}:`, error);
+    return {
+      content: [{ type: "text", text: `Error in calendar ${operation}: ${error.message}` }]
+    };
+  }
+}
+
+// Implementation functions (existing logic from original files)
+
+async function listCalendarEvents(accessToken, params) {
+  const { startDateTime, endDateTime, maxResults = 10 } = params;
+  
+  console.error(`Calendar list request with startDateTime: ${startDateTime}, endDateTime: ${endDateTime}`);
+  
+  const queryParams = {
+    $select: config.CALENDAR_SELECT_FIELDS,
+    $orderby: 'start/dateTime',
+    $top: maxResults
+  };
+  
+  // Add date filter if provided
+  if (startDateTime || endDateTime) {
+    const filters = [];
+    if (startDateTime) {
+      // Only append Z if no timezone indicator already present
+      const formattedStartDateTime = hasTzIndicator(startDateTime)
+        ? startDateTime
+        : `${startDateTime}Z`;
+
+      filters.push(`start/dateTime ge '${formattedStartDateTime}'`);
+      console.error(`Using start filter: start/dateTime ge '${formattedStartDateTime}'`);
+    }
+    if (endDateTime) {
+      const formattedEndDateTime = hasTzIndicator(endDateTime)
+        ? endDateTime
+        : `${endDateTime}Z`;
+
+      filters.push(`end/dateTime le '${formattedEndDateTime}'`);
+      console.error(`Using end filter: end/dateTime le '${formattedEndDateTime}'`);
+    }
+    queryParams.$filter = filters.join(' and ');
+  }
+  
+  // Query calendarView across ALL user calendars to capture accepted invites,
+  // Teams channel meetings, and shared calendar events — not just the default calendar.
+  if (startDateTime && endDateTime) {
+    const formattedStartDateTime = hasTzIndicator(startDateTime) ? startDateTime : `${startDateTime}Z`;
+    const formattedEndDateTime = hasTzIndicator(endDateTime) ? endDateTime : `${endDateTime}Z`;
+
+    const viewParams = {
+      $select: config.CALENDAR_SELECT_FIELDS,
+      $orderby: 'start/dateTime',
+      $top: maxResults,
+      startDateTime: formattedStartDateTime,
+      endDateTime: formattedEndDateTime
+    };
+
+    // Get all calendars, then query calendarView for each
+    const calendarsResponse = await callGraphAPI(
+      accessToken,
+      'GET',
+      'me/calendars',
+      null,
+      { $select: 'id,name' }
+    );
+
+    const calendars = (calendarsResponse.value || []).filter(
+      cal => !['Birthdays'].includes(cal.name)
+    );
+
+    const allEvents = [];
+    const seenKeys = new Set();
+
+    for (const cal of calendars) {
+      try {
+        const calEvents = await callGraphAPI(
+          accessToken,
+          'GET',
+          `me/calendars/${cal.id}/calendarView`,
+          null,
+          viewParams
+        );
+        for (const event of (calEvents.value || [])) {
+          // Deduplicate by subject + start time — the same logical event has
+          // different IDs across calendars (default vs shared/followed).
+          // Strip "Following: " prefix so followed events match their originals.
+          const normSubject = (event.subject || '').replace(/^Following:\s*/i, '');
+          const dedupeKey = `${normSubject}|${event.start.dateTime}`;
+          if (!seenKeys.has(dedupeKey)) {
+            seenKeys.add(dedupeKey);
+            allEvents.push(event);
+          }
+        }
+      } catch (calError) {
+        console.error(`Skipping calendar ${cal.name}: ${calError.message}`);
+      }
+    }
+
+    // Sort by start time and apply maxResults limit
+    allEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+    const limited = allEvents.slice(0, maxResults);
+
+    console.error(`Cross-calendar query: ${calendars.length} calendars, ${allEvents.length} total events`);
+    return formatCalendarResponse({ value: limited });
+  }
+
+  // No date range: fall back to /me/events (default calendar only — accepted limitation)
+  const response = await callGraphAPI(
+    accessToken,
+    'GET',
+    'me/events',
+    null,
+    queryParams
+  );
+
+  return formatCalendarResponse(response);
+}
+
+/**
+ * Helper function to format calendar response
+ */
+function formatCalendarResponse(response) {
+  if (!response.value || response.value.length === 0) {
+    return {
+      content: [{ type: "text", text: "No calendar events found." }]
+    };
+  }
+  
+  const eventsList = response.value.map((event, index) => {
+    const startTime = config.formatDateTime(event.start.dateTime, event.start.timeZone);
+    const endTime = config.formatDateTime(event.end.dateTime, event.end.timeZone);
+    return `${index + 1}. ${event.subject}\n   Start: ${startTime}\n   End: ${endTime}\n   Location: ${event.location.displayName || 'N/A'}\n   ID: ${event.id}\n`;
+  }).join('\n');
+  
+  return {
+    content: [{ 
+      type: "text", 
+      text: `Found ${response.value.length} calendar events:\n\n${eventsList}` 
+    }]
+  }
+}
+
+async function createCalendarEvent(accessToken, params) {
+  const { subject, content, start, end, location, attendees, isOnlineMeeting, recurrence } = params;
+  
+  if (!subject || !start || !end) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: "Missing required parameters: subject, start, and end" 
+      }]
+    };
+  }
+  
+  const event = {
+    subject: subject,
+    body: {
+      contentType: "HTML",
+      content: content || ""
+    },
+    start: {
+      dateTime: start,
+      timeZone: config.getMsTimezone()
+    },
+    end: {
+      dateTime: end,
+      timeZone: config.getMsTimezone()
+    }
+  };
+  
+  if (location) {
+    event.location = { displayName: location };
+  }
+  
+  if (attendees && attendees.length > 0) {
+    event.attendees = attendees.map(email => ({
+      emailAddress: { address: email },
+      type: "required"
+    }));
+  }
+  
+  if (isOnlineMeeting) {
+    event.isOnlineMeeting = true;
+    event.onlineMeetingProvider = "teamsForBusiness";
+  }
+  
+  // Add recurrence support
+  if (recurrence) {
+    event.recurrence = {
+      pattern: {
+        type: recurrence.pattern.type, // daily, weekly, absoluteMonthly, relativeMonthly, absoluteYearly, relativeYearly
+        interval: recurrence.pattern.interval || 1,
+        daysOfWeek: recurrence.pattern.daysOfWeek, // for weekly: ["monday", "wednesday"]
+        dayOfMonth: recurrence.pattern.dayOfMonth, // for absoluteMonthly
+        month: recurrence.pattern.month, // for yearly patterns
+        firstDayOfWeek: recurrence.pattern.firstDayOfWeek || 'sunday',
+        index: recurrence.pattern.index // for relativeMonthly: "first", "second", "third", "fourth", "last"
+      },
+      range: {
+        type: recurrence.range.type, // endDate, noEnd, numbered
+        startDate: recurrence.range.startDate,
+        endDate: recurrence.range.endDate,
+        numberOfOccurrences: recurrence.range.numberOfOccurrences,
+        recurrenceTimeZone: recurrence.range.recurrenceTimeZone || config.getMsTimezone()
+      }
+    };
+  }
+  
+  const response = await callGraphAPI(
+    accessToken,
+    'POST',
+    'me/calendar/events',
+    event
+  );
+
+  return {
+    content: [{
+      type: "text",
+      text: `Calendar event created successfully!\nEvent ID: ${response.id}`
+    }]
+  };
+}
+
+async function findMeetingTimes(accessToken, params) {
+  const { attendees = [], meetingDurationMinutes, meetingDuration, maxCandidates = 5, isOrganizerOptional = false, returnSuggestionReasons = true, meetingLocation, timeConstraint, start, end, locationConstraint } = params;
+
+  if (!attendees || !attendees.length) {
+    return {
+      content: [{
+        type: "text",
+        text: "Missing required parameter: attendees (provide at least one email or attendee object)"
+      }]
+    };
+  }
+
+  const request = {
+    attendees: buildAttendees(attendees),
+    meetingDuration: meetingDuration || `PT${Math.max(parseInt(meetingDurationMinutes, 10) || 30)}M`,
+    maxCandidates,
+    isOrganizerOptional,
+    returnSuggestionReasons,
+    timeConstraint: buildTimeConstraint(timeConstraint, start, end)
+  };
+
+  if (meetingLocation || locationConstraint) {
+    request.meetingTimeLocations = [{
+      displayName: meetingLocation || locationConstraint
+    }];
+  }
+
+  const response = await callGraphAPI(
+    accessToken,
+    'POST',
+    'me/findMeetingTimes',
+    request
+  );
+
+  return formatFindMeetingTimesResponse(response);
+}
+
+function buildAttendees(attendeesInput) {
+  return attendeesInput.map(attendee => {
+    if (typeof attendee === 'string') {
+      return { type: 'Required', emailAddress: { address: attendee } };
+    }
+
+    const address = attendee.email || attendee.address;
+    if (!address) {
+      throw new Error('Attendee object must contain an email or address property');
+    }
+
+    return {
+      type: attendee.type || 'Required',
+      emailAddress: {
+        address,
+        name: attendee.name
+      }
+    };
+  });
+}
+
+function buildTimeConstraint(explicitConstraint, start, end) {
+  if (explicitConstraint && explicitConstraint.timeslots && explicitConstraint.timeslots.length) {
+    return explicitConstraint;
+  }
+
+  if (start && end) {
+    return {
+      timeslots: [{
+        start: {
+          dateTime: ensureGraphDateTime(start),
+          timeZone: config.getMsTimezone()
+        },
+        end: {
+          dateTime: ensureGraphDateTime(end),
+          timeZone: config.getMsTimezone()
+        }
+      }]
+    };
+  }
+
+  return undefined;
+}
+
+function ensureGraphDateTime(value) {
+  if (!value) return value;
+  if (value.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(value)) {
+    return value;
+  }
+  return `${value}Z`;
+}
+
+function formatFindMeetingTimesResponse(response) {
+  if (!response || !response.meetingTimeSuggestions || response.meetingTimeSuggestions.length === 0) {
+    return {
+      content: [{
+        type: "text",
+        text: "No common slots found from findMeetingTimes."
+      }]
+    };
+  }
+
+  const summary = response.meetingTimeSuggestions.map((suggestion, idx) => {
+    const slot = suggestion.meetingTimeSlot;
+    const formattedStart = config.formatDateTime(slot.start.dateTime, slot.start.timeZone);
+    const formattedEnd = config.formatDateTime(slot.end.dateTime, slot.end.timeZone);
+    const reason = suggestion.suggestionReason || 'Recommended slot';
+    return `${idx + 1}. ${formattedStart} - ${formattedEnd} (${reason})`;
+  }).join('\n');
+
+  return {
+    content: [{
+      type: "text",
+      text: `Suggested meeting times:\n${summary}`
+    }]
+  };
+}
+
+async function getCalendarEvent(accessToken, params) {
+  const { eventId } = params;
+  
+  if (!eventId) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: "Missing required parameter: eventId" 
+      }]
+    };
+  }
+  
+  const response = await callGraphAPI(
+    accessToken,
+    'GET',
+    `me/events/${eventId}`,
+    null,
+    {
+      $select: config.CALENDAR_SELECT_FIELDS
+    }
+  );
+
+  const startTime = config.formatDateTime(response.start.dateTime, response.start.timeZone);
+  const endTime = config.formatDateTime(response.end.dateTime, response.end.timeZone);
+
+  let eventDetails = `Subject: ${response.subject}\n`;
+  eventDetails += `Start: ${startTime}\n`;
+  eventDetails += `End: ${endTime}\n`;
+  eventDetails += `Location: ${response.location?.displayName || 'N/A'}\n`;
+  eventDetails += `Online Meeting: ${response.isOnlineMeeting ? 'Yes' : 'No'}\n`;
+  
+  if (response.attendees && response.attendees.length > 0) {
+    eventDetails += `Attendees: ${response.attendees.map(a => a.emailAddress.address).join(', ')}\n`;
+  }
+  
+  if (response.body?.content) {
+    eventDetails += `\nDescription:\n${response.body.content}`;
+  }
+  
+  return {
+    content: [{ type: "text", text: eventDetails }]
+  };
+}
+
+async function updateCalendarEvent(accessToken, params) {
+  const { eventId, ...updateFields } = params;
+  
+  if (!eventId) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: "Missing required parameter: eventId" 
+      }]
+    };
+  }
+  
+  const allowedFields = ['subject', 'location', 'body', 'start', 'end', 'isOnlineMeeting'];
+  const update = {};
+  
+  // Build update object with allowed fields
+  for (const [key, value] of Object.entries(updateFields)) {
+    if (allowedFields.includes(key)) {
+      if (key === 'location') {
+        update.location = { displayName: value };
+      } else if (key === 'body') {
+        update.body = { contentType: "HTML", content: value };
+      } else if (key === 'start' || key === 'end') {
+        update[key] = { dateTime: value, timeZone: config.getMsTimezone() };
+      } else {
+        update[key] = value;
+      }
+    }
+  }
+  
+  if (Object.keys(update).length === 0) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: "No valid fields to update. Valid fields: subject, location, body, start, end, isOnlineMeeting" 
+      }]
+    };
+  }
+  
+  await callGraphAPI(
+    accessToken,
+    'PATCH',
+    `me/events/${eventId}`,
+    update
+  );
+  
+  return {
+    content: [{ type: "text", text: "Calendar event updated successfully!" }]
+  };
+}
+
+async function deleteCalendarEvent(accessToken, params) {
+  const { eventId, sendCancellations = true } = params;
+  
+  if (!eventId) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: "Missing required parameter: eventId" 
+      }]
+    };
+  }
+  
+  await callGraphAPI(
+    accessToken,
+    'DELETE',
+    `me/events/${eventId}`,
+    null,
+    sendCancellations ? { sendCancellations: 'true' } : {}
+  );
+  
+  return {
+    content: [{ type: "text", text: "Calendar event deleted successfully!" }]
+  };
+}
+
+// Export consolidated tool
+const calendarTools = [
+  {
+    name: "calendar",
+    description: "Manage calendar events: list, create, get, update, or delete",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operation: { 
+          type: "string", 
+          enum: ["list", "create", "find", "get", "update", "delete"],
+          description: "The operation to perform" 
+        },
+        // List parameters
+        startDateTime: { type: "string", description: "Start date/time filter in ISO format (for list)" },
+        endDateTime: { type: "string", description: "End date/time filter in ISO format (for list)" },
+        maxResults: { type: "number", description: "Maximum number of results (default: 10)" },
+        // Create parameters
+        subject: { type: "string", description: "Event subject (for create/update)" },
+        content: { type: "string", description: "Event body content in HTML (for create/update)" },
+        start: { type: "string", description: "Start date/time in ISO format (for create/update)" },
+        end: { type: "string", description: "End date/time in ISO format (for create/update)" },
+        location: { type: "string", description: "Event location (for create/update)" },
+        attendees: { 
+          type: "array", 
+          items: { type: "string" },
+          description: "Attendee email addresses or objects (for create/find)" 
+        },
+        meetingDurationMinutes: {
+          type: "number",
+          description: "Duration in minutes for findMeetingTimes slots (default 30)"
+        },
+        meetingDuration: {
+          type: "string",
+          description: "ISO 8601 duration string for findMeetingTimes (takes precedence over meetingDurationMinutes)"
+        },
+        timeConstraint: {
+          type: "object",
+          description: "Time constraint for findMeetingTimes with timeslots array"
+        },
+        maxCandidates: {
+          type: "number",
+          description: "Limit the number of suggestions returned by findMeetingTimes"
+        },
+        isOrganizerOptional: {
+          type: "boolean",
+          description: "Treat the organizer as optional for availability search"
+        },
+        returnSuggestionReasons: {
+          type: "boolean",
+          description: "Include the suggestionReason field in the findMeetingTimes response"
+        },
+        meetingLocation: {
+          type: "string",
+          description: "Preferred meeting location to seed findMeetingTimes"
+        },
+        isOnlineMeeting: { type: "boolean", description: "Create as Teams meeting (for create/update)" },
+        // Recurrence parameters (for create)
+        recurrence: {
+          type: "object",
+          description: "Recurrence pattern and range for recurring events",
+          properties: {
+            pattern: {
+              type: "object",
+              properties: {
+                type: { 
+                  type: "string", 
+                  enum: ["daily", "weekly", "absoluteMonthly", "relativeMonthly", "absoluteYearly", "relativeYearly"],
+                  description: "Recurrence pattern type" 
+                },
+                interval: { type: "number", description: "Interval between occurrences" },
+                daysOfWeek: { 
+                  type: "array", 
+                  items: { type: "string" },
+                  description: "Days of week for weekly pattern (e.g., ['monday', 'wednesday'])" 
+                },
+                dayOfMonth: { type: "number", description: "Day of month for absoluteMonthly pattern" },
+                month: { type: "number", description: "Month for yearly patterns (1-12)" },
+                firstDayOfWeek: { type: "string", description: "First day of week (default: sunday)" },
+                index: { 
+                  type: "string",
+                  enum: ["first", "second", "third", "fourth", "last"],
+                  description: "Week index for relativeMonthly pattern" 
+                }
+              }
+            },
+            range: {
+              type: "object",
+              properties: {
+                type: { 
+                  type: "string", 
+                  enum: ["endDate", "noEnd", "numbered"],
+                  description: "Recurrence range type" 
+                },
+                startDate: { type: "string", description: "Start date in YYYY-MM-DD format" },
+                endDate: { type: "string", description: "End date in YYYY-MM-DD format (for endDate type)" },
+                numberOfOccurrences: { type: "number", description: "Number of occurrences (for numbered type)" },
+                recurrenceTimeZone: { type: "string", description: "Time zone for recurrence (default: UTC)" }
+              }
+            }
+          }
+        },
+        // Get/Update/Delete parameters
+        eventId: { type: "string", description: "Event ID (for get/update/delete)" },
+        // Delete parameters
+        sendCancellations: { type: "boolean", description: "Send cancellation notices (default: true)" }
+      },
+      required: ["operation"]
+    },
+    handler: safeTool('calendar', handleCalendar)
+  }
+];
+
+module.exports = { calendarTools };

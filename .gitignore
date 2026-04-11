@@ -1,0 +1,31 @@
+# Credentials — NEVER commit
+.env
+*.env
+.env.*
+!.env.template
+
+# Auth tokens
+*-tokens.json
+*.token
+.office-mcp-tokens.json
+
+# Server credentials and dependencies
+server/.env
+server/node_modules/
+
+# MCP config (machine-specific paths)
+.mcp.json
+
+# macOS
+.DS_Store
+
+# Temp files
+*.tmp
+temp/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code project config (user-specific)
+.claude/
