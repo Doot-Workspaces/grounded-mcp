@@ -13,7 +13,7 @@
 const { ensureAuthenticated } = require('../../auth');
 const { callGraphAPI } = require('../../utils/graph-api');
 const config = require('../../config');
-const { formatHtmlOutbound } = require('../../utils/outbound-format');
+const { renderOutbound } = require('../../utils/outbound-format');
 
 
 /**
@@ -450,9 +450,7 @@ async function sendChatMessage(accessToken, params) {
     };
   }
 
-  const formattedContent = addTeamsParagraphSpacing(formatHtmlOutbound(content, {
-    maxBodyLines: 0
-  }));
+  const { html: formattedContent } = renderOutbound({ content, target: 'teams' });
 
   const messageData = {
     body: {
@@ -496,44 +494,43 @@ async function sendChatMessage(accessToken, params) {
   };
 }
 
-function addTeamsParagraphSpacing(html) {
-  return html
-    .replace(/<p>&nbsp;<\/p>/gi, '<br><br>')
-    .replace(/<\/p>\s*<p/gi, '</p><br><br><p')
-    .replace(/<\/p>\s*<ul/gi, '</p><br><br><ul')
-    .replace(/<\/ul>\s*<p/gi, '</ul><br><br><p')
-    .replace(/(<br><br>\s*){2,}/gi, '<br><br>');
-}
-
 /**
  * Update a chat message
  */
 async function updateChatMessage(accessToken, params) {
-  const { chatId, messageId, content } = params;
-  
+  const { chatId, messageId, content, mentions } = params;
+
   if (!chatId || !messageId || !content) {
     return {
-      content: [{ 
-        type: "text", 
-        text: "Missing required parameters. Please provide chatId, messageId, and content." 
+      content: [{
+        type: "text",
+        text: "Missing required parameters. Please provide chatId, messageId, and content."
       }]
     };
   }
-  
+
+  const { html: formattedContent } = renderOutbound({ content, target: 'teams' });
+
   const messageData = {
     body: {
-      content,
-      contentType: content.includes('<') ? 'html' : 'text'
+      content: formattedContent,
+      contentType: 'html'
     }
   };
-  
+
+  // Re-pass mentions on update — Teams does not re-trigger notifications on edits,
+  // but mentions must be included or they vanish from the visible message text.
+  if (mentions && Array.isArray(mentions) && mentions.length > 0) {
+    messageData.mentions = mentions;
+  }
+
   await callGraphAPI(
     accessToken,
     'PATCH',
     `chats/${chatId}/messages/${messageId}`,
     messageData
   );
-  
+
   return {
     content: [{ type: "text", text: "Message updated successfully!" }]
   };

@@ -1,0 +1,46 @@
+name: Server tests
+
+# Guards every change touching transport/formatting code.
+# This is the CI gate that keeps outbound-format discipline from silently drifting.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-tests.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-tests.yml'
+
+jobs:
+  test:
+    name: Run Jest suite
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Run Jest
+        run: npx jest tests/ --ci --reporters=default
+
+      - name: Format discipline gate
+        # Dedicated run that fails fast if outbound-format or Teams tests regress.
+        # These are the tests that protect against the "blob" and "markdown literals" class of bugs.
+        run: |
+          npx jest tests/outbound-format.test.js --ci
+          npx jest tests/teams.test.js --ci
+          npx jest tests/teams-chat-mentions.test.js --ci

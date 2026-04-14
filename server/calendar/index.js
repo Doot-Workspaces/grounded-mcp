@@ -7,6 +7,7 @@ const { ensureAuthenticated } = require('../auth');
 const { callGraphAPI } = require('../utils/graph-api');
 const config = require('../config');
 const { safeTool } = require('../utils/errors');
+const { renderOutbound } = require('../utils/outbound-format');
 
 /**
  * Check if a datetime string already has a timezone indicator (Z, +offset, or -offset).
@@ -213,11 +214,13 @@ async function createCalendarEvent(accessToken, params) {
     };
   }
   
+  const { html: renderedContent } = renderOutbound({ content: content || "", target: 'email', signOff: '' });
+
   const event = {
     subject: subject,
     body: {
       contentType: "HTML",
-      content: content || ""
+      content: renderedContent
     },
     start: {
       dateTime: start,
@@ -462,7 +465,8 @@ async function updateCalendarEvent(accessToken, params) {
       if (key === 'location') {
         update.location = { displayName: value };
       } else if (key === 'body') {
-        update.body = { contentType: "HTML", content: value };
+        const { html: renderedBody } = renderOutbound({ content: value, target: 'email', signOff: '' });
+        update.body = { contentType: "HTML", content: renderedBody };
       } else if (key === 'start' || key === 'end') {
         update[key] = { dateTime: value, timeZone: config.getMsTimezone() };
       } else {
@@ -536,7 +540,7 @@ const calendarTools = [
         maxResults: { type: "number", description: "Maximum number of results (default: 10)" },
         // Create parameters
         subject: { type: "string", description: "Event subject (for create/update)" },
-        content: { type: "string", description: "Event body content in HTML (for create/update)" },
+        content: { type: "string", description: "Event body content (HTML or plain text — normalized server-side via renderOutbound)" },
         start: { type: "string", description: "Start date/time in ISO format (for create/update)" },
         end: { type: "string", description: "End date/time in ISO format (for create/update)" },
         location: { type: "string", description: "Event location (for create/update)" },

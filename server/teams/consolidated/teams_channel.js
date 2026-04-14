@@ -14,7 +14,7 @@
 
 const { ensureAuthenticated } = require('../../auth');
 const { callGraphAPI } = require('../../utils/graph-api');
-const { formatHtmlOutbound } = require('../../utils/outbound-format');
+const { renderOutbound } = require('../../utils/outbound-format');
 const config = require('../../config');
 
 
@@ -421,9 +421,7 @@ async function createChannelMessage(accessToken, params) {
     };
   }
   
-  const formattedContent = formatHtmlOutbound(content, {
-    maxBodyLines: 0
-  });
+  const { html: formattedContent } = renderOutbound({ content, target: 'teams' });
 
   const messageData = {
     body: {
@@ -431,7 +429,7 @@ async function createChannelMessage(accessToken, params) {
       contentType: 'html'
     }
   };
-  
+
   // Add attachments if present
   if (attachments && Array.isArray(attachments) && attachments.length > 0) {
     messageData.attachments = attachments.map(attachment => {
@@ -439,7 +437,7 @@ async function createChannelMessage(accessToken, params) {
       return { name, contentUrl, contentType };
     });
   }
-  
+
   const response = await callGraphAPI(
     accessToken,
     'POST',
@@ -459,20 +457,18 @@ async function createChannelMessage(accessToken, params) {
  * Reply to a channel message
  */
 async function replyToChannelMessage(accessToken, params) {
-  const { teamId, channelId, messageId, content, attachments } = params;
-  
+  const { teamId, channelId, messageId, content, attachments, mentions } = params;
+
   if (!teamId || !channelId || !messageId || !content) {
     return {
-      content: [{ 
-        type: "text", 
-        text: "Missing required parameters. Please provide teamId, channelId, messageId, and content." 
+      content: [{
+        type: "text",
+        text: "Missing required parameters. Please provide teamId, channelId, messageId, and content."
       }]
     };
   }
-  
-  const formattedContent = formatHtmlOutbound(content, {
-    maxBodyLines: 0
-  });
+
+  const { html: formattedContent } = renderOutbound({ content, target: 'teams' });
 
   const replyData = {
     body: {
@@ -480,7 +476,7 @@ async function replyToChannelMessage(accessToken, params) {
       contentType: 'html'
     }
   };
-  
+
   // Add attachments if present
   if (attachments && Array.isArray(attachments) && attachments.length > 0) {
     replyData.attachments = attachments.map(attachment => {
@@ -488,7 +484,13 @@ async function replyToChannelMessage(accessToken, params) {
       return { name, contentUrl, contentType };
     });
   }
-  
+
+  // Re-pass mentions — Teams does not re-trigger notifications on reply edits,
+  // but mentions must be included or they vanish from the visible message text.
+  if (mentions && Array.isArray(mentions) && mentions.length > 0) {
+    replyData.mentions = mentions;
+  }
+
   const response = await callGraphAPI(
     accessToken,
     'POST',

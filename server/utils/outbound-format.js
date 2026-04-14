@@ -2,14 +2,16 @@ const DEFAULT_SIGN_OFF = process.env.OUTBOUND_SIGN_OFF !== undefined ? process.e
 const SIGN_OFF_VARIANTS = /^(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i;
 const RICH_HTML_PATTERN = /<(table|thead|tbody|tr|td|th|ul|ol|li|h[1-6]|blockquote|pre|code|p|div|br)\b/i;
 
-// Markdown patterns that Teams renders as literal characters — must be caught and converted
-const MARKDOWN_BOLD_RE = /\*\*([^*]+)\*\*/g;
-const MARKDOWN_ITALIC_STAR_RE = /(?<!\*)\*([^*]+)\*(?!\*)/g;
-const MARKDOWN_ITALIC_UNDER_RE = /(?<!_)_([^_]+)_(?!_)/g;
-const MARKDOWN_HEADING_RE = /^#{1,6}\s+/gm;
-const MARKDOWN_INLINE_CODE_RE = /`([^`]+)`/g;
-const MARKDOWN_TABLE_RE = /^\|.+\|$/m;
-const MARKDOWN_DETECT_RE = /(\*\*[^*]+\*\*)|(^#{1,6}\s)|(^\|.+\|$)/m;
+// Markdown detection — Teams and Outlook render Markdown as literal characters.
+// Policy: warn on stderr so the issue is visible; do not silently strip or convert.
+// Agents should pass explicit HTML if they want bold/italic formatting.
+const MARKDOWN_DETECT_RE = /(\*\*[^*\n]+\*\*)|(^\s{0,3}#{1,6}\s)|(^\|.+\|$)|(`[^`\n]+`)/m;
+
+function detectMarkdown(text) {
+  if (!text || RICH_HTML_PATTERN.test(text)) return false;
+  return MARKDOWN_DETECT_RE.test(text);
+}
+
 const SECTION_HEADING_BODY = "[A-Z][A-Za-z0-9/&(),' -]{1,80}:";
 const INLINE_SECTION_SPLIT_PATTERN = new RegExp(
   `(?<=[.?!])\\s+(${SECTION_HEADING_BODY})(?=\\s|$)`,
@@ -22,29 +24,7 @@ const STANDALONE_SECTION_PATTERN = new RegExp(`^${SECTION_HEADING_BODY}$`);
 const INLINE_CLOSER_SPLIT_PATTERN = /(?<=[.?!])\s+(Thanks,)(?=\s|$)/g;
 const SENTENCE_SPLIT_PATTERN = /(?<=[.!?])\s+(?=[A-Z0-9])/;
 
-/**
- * Detect Markdown syntax in content. Teams and Outlook both render markdown
- * as literal characters — every consumer needs this caught at the boundary.
- */
-function containsMarkdown(text) {
-  if (!text) return false;
-  return MARKDOWN_DETECT_RE.test(text);
-}
-
-/**
- * Strip Markdown syntax so the formatter can re-emit clean HTML.
- * Converts **bold** → bold (later wrapped in <strong>), strips headings,
- * unwraps inline code, removes table pipes.
- */
-function stripMarkdown(text) {
-  if (!text) return text;
-  return text
-    .replace(MARKDOWN_BOLD_RE, '$1')
-    .replace(MARKDOWN_HEADING_RE, '')
-    .replace(MARKDOWN_INLINE_CODE_RE, '$1')
-    .replace(MARKDOWN_ITALIC_STAR_RE, '$1')
-    .replace(MARKDOWN_ITALIC_UNDER_RE, '$1');
-}
+// ─── low-level helpers ────────────────────────────────────────────────────────
 
 function decodeHtmlEntities(text) {
   return text
@@ -211,29 +191,25 @@ function collapseToMaxLines(lines, maxBodyLines) {
   return kept;
 }
 
-function formatPlainTextOutbound(content, options = {}) {
-  const { maxBodyLines = 3, signOff = DEFAULT_SIGN_OFF } = options;
-  const source = normalizeLine((content || '').replace(/\r/g, '')) ? content : '';
-  const asText = /<[^>]+>/.test(source) ? extractText(source) : source;
-  // Strip Markdown before further processing — Teams/Outlook render it as literal characters
-  const demarkdowned = containsMarkdown(asText) ? stripMarkdown(asText) : asText;
-  const sanitizedText = demarkdowned
-    .replace(/\s+(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i, '')
-    .replace(/\bThanks,\s*(?:Prody-dris-agent|-agent)\s*$/i, 'Thanks,')
-    .replace(/\s+(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i, '');
-  const bodyLines = collapseToMaxLines(
-    stripExistingSignOff(splitIntoBodyLines(sanitizedText)),
-    maxBodyLines
-  );
-
-  return signOff ? [...bodyLines, signOff].join('\n').trim() : bodyLines.join('\n').trim();
-}
+// Matches Teams @mention markers that must pass through un-escaped to Graph:
+//   <at id="0">Name</at>  |  <at id='0'>Name</at>  |  </at>
+const MENTION_TAG_PATTERN = /<at\s+id=(?:"[^"]*"|'[^']*')\s*>|<\/at>/g;
 
 function escapeHtml(text) {
-  return text
+  // Preserve <at id="N">...</at> Teams mention markers verbatim.
+  // Without this, escapeHtml converts them to &lt;at ...&gt; and Graph rejects
+  // the message with "Neither Body nor adaptive card content contains marker for mention with Id 'N'".
+  const placeholders = [];
+  const withPlaceholders = text.replace(MENTION_TAG_PATTERN, (match) => {
+    const token = `\u0000MENTION${placeholders.length}\u0000`;
+    placeholders.push(match);
+    return token;
+  });
+  const escaped = withPlaceholders
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+  return escaped.replace(/\u0000MENTION(\d+)\u0000/g, (_, i) => placeholders[Number(i)]);
 }
 
 function isSectionHeading(line) {
@@ -290,6 +266,22 @@ function convertLinesToHtml(lines) {
   return blocks.join('');
 }
 
+function formatPlainTextOutbound(content, options = {}) {
+  const { maxBodyLines = 3, signOff = DEFAULT_SIGN_OFF } = options;
+  const source = normalizeLine((content || '').replace(/\r/g, '')) ? content : '';
+  const asText = /<[^>]+>/.test(source) ? extractText(source) : source;
+  const sanitizedText = asText
+    .replace(/\s+(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i, '')
+    .replace(/\bThanks,\s*(?:Prody-dris-agent|-agent)\s*$/i, 'Thanks,')
+    .replace(/\s+(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i, '');
+  const bodyLines = collapseToMaxLines(
+    stripExistingSignOff(splitIntoBodyLines(sanitizedText)),
+    maxBodyLines
+  );
+
+  return signOff ? [...bodyLines, signOff].join('\n').trim() : bodyLines.join('\n').trim();
+}
+
 function formatHtmlOutbound(content, options = {}) {
   const { maxBodyLines = 5, signOff = DEFAULT_SIGN_OFF } = options;
   const source = (content || '').trim();
@@ -303,10 +295,328 @@ function formatHtmlOutbound(content, options = {}) {
   return convertLinesToHtml(lines);
 }
 
+// ─── AST parser and target-specific serializers ───────────────────────────────
+
+/**
+ * Parse HTML or plain text into a flat array of block descriptors.
+ * Block types: paragraph | bullet-list | divider
+ * bullet-list blocks carry an `items` array of strings.
+ */
+function parseToBlocks(input) {
+  const source = (input || '').trim();
+  if (!source) return [];
+
+  // If it looks like HTML, extract structure from tags
+  if (RICH_HTML_PATTERN.test(source)) {
+    return parseHtmlToBlocks(source);
+  }
+
+  return parsePlainTextToBlocks(source);
+}
+
+function parseHtmlToBlocks(html) {
+  const blocks = [];
+  // Normalize self-closing br
+  let remaining = html.replace(/<br\s*\/?>/gi, '\n');
+
+  // Strip outer <html>/<body> wrappers if present so we work on inner content
+  const bodyMatch = remaining.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch) {
+    remaining = bodyMatch[1].trim();
+  }
+
+  // Split by block-level tags to produce a sequence of segments
+  // We'll walk through and accumulate items/paragraphs
+  const tagPattern = /<(\/?)(?:p|div|ul|ol|li|h[1-6]|blockquote|pre)([^>]*)>/gi;
+  let match;
+  let lastIndex = 0;
+  const tokens = [];
+
+  while ((match = tagPattern.exec(remaining)) !== null) {
+    if (match.index > lastIndex) {
+      const text = remaining.slice(lastIndex, match.index);
+      tokens.push({ kind: 'text', value: text });
+    }
+    tokens.push({ kind: 'tag', closing: match[1] === '/', name: match[2] ? match[0].match(/<\/?(\w+)/)[1] : '', raw: match[0] });
+    lastIndex = tagPattern.lastIndex;
+  }
+  if (lastIndex < remaining.length) {
+    tokens.push({ kind: 'text', value: remaining.slice(lastIndex) });
+  }
+
+  // State machine: collect text inside tags.
+  // paraText accumulates raw HTML (including inline tags) for each paragraph.
+  // listItemText similarly accumulates raw HTML per list item.
+  let inList = false;
+  let listItems = [];
+  let inListItem = false;
+  let listItemText = '';
+  let paraText = '';
+
+  // Strip only block-level tags; preserve inline HTML (strong, em, a, at, span, etc.)
+  const stripBlockTags = raw => raw.replace(/<\/?(p|div|ul|ol|li|h[1-6]|blockquote|pre)\b[^>]*>/gi, ' ');
+
+  const flushPara = () => {
+    // Preserve inline HTML so <strong>, <em>, <a>, <at> etc. survive round-trip
+    const raw = paraText.trim();
+    paraText = '';
+    if (!raw) return;
+    // For sign-off check, compare plain-text version
+    const plain = normalizeLine(decodeHtmlEntities(raw.replace(/<[^>]+>/g, ' ')));
+    if (!plain) return;
+    blocks.push({ type: 'paragraph', content: plain, rawHtml: stripBlockTags(raw).trim() });
+  };
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      blocks.push({ type: 'bullet-list', items: listItems });
+      listItems = [];
+    }
+    inList = false;
+  };
+
+  for (const token of tokens) {
+    if (token.kind === 'tag') {
+      const tagName = token.raw.match(/<\/?(\w+)/)?.[1]?.toLowerCase();
+      if (!tagName) continue;
+
+      if (!token.closing) {
+        if (tagName === 'ul' || tagName === 'ol') {
+          flushPara();
+          inList = true;
+        } else if (tagName === 'li') {
+          inListItem = true;
+          listItemText = '';
+        } else if (/^(p|div|h[1-6]|blockquote|pre)$/.test(tagName)) {
+          if (inList) flushList();
+          flushPara();
+        }
+      } else {
+        if (tagName === 'li') {
+          const plain = normalizeLine(decodeHtmlEntities(listItemText.replace(/<[^>]+>/g, ' ')));
+          if (plain) listItems.push(plain);
+          inListItem = false;
+          listItemText = '';
+        } else if (tagName === 'ul' || tagName === 'ol') {
+          flushList();
+        } else if (/^(p|div|h[1-6]|blockquote|pre)$/.test(tagName)) {
+          if (!inList) flushPara();
+        }
+      }
+    } else {
+      // text token
+      if (inListItem) {
+        listItemText += token.value;
+      } else if (!inList) {
+        paraText += token.value;
+      }
+    }
+  }
+
+  flushPara();
+  if (listItems.length > 0) flushList();
+
+  // Remove sign-off blocks
+  while (blocks.length > 0) {
+    const last = blocks[blocks.length - 1];
+    if (last.type === 'paragraph' && SIGN_OFF_VARIANTS.test(last.content)) {
+      blocks.pop();
+    } else {
+      break;
+    }
+  }
+
+  return blocks;
+}
+
+function parsePlainTextToBlocks(text) {
+  // Use existing line-parsing logic to get structured lines, then group into blocks
+  const sanitizedText = text
+    .replace(/\s+(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i, '')
+    .replace(/\bThanks,\s*(?:Prody-dris-agent|-agent)\s*$/i, 'Thanks,');
+
+  const lines = splitIntoBodyLines(sanitizedText);
+  const cleanedLines = stripExistingSignOff(lines);
+
+  const blocks = [];
+  let i = 0;
+
+  while (i < cleanedLines.length) {
+    const line = cleanedLines[i];
+
+    if (line === '') {
+      i++;
+      continue;
+    }
+
+    if (/^- /.test(line)) {
+      const items = [];
+      while (i < cleanedLines.length && /^- /.test(cleanedLines[i])) {
+        items.push(cleanedLines[i].replace(/^- /, ''));
+        i++;
+      }
+      blocks.push({ type: 'bullet-list', items });
+      continue;
+    }
+
+    blocks.push({ type: 'paragraph', content: line });
+    i++;
+  }
+
+  return blocks;
+}
+
+/**
+ * Serialize AST blocks to Teams HTML.
+ * Paragraphs -> <div>, blank separators -> <div>&nbsp;</div>, bullets -> <ul><li>.
+ * Never emits <p>.
+ */
+function serializeTeams(blocks, signOff) {
+  const parts = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+
+    if (i > 0) {
+      parts.push('<div>&nbsp;</div>');
+    }
+
+    if (block.type === 'paragraph') {
+      const inner = block.rawHtml || escapeHtml(block.content);
+      parts.push(`<div>${inner}</div>`);
+    } else if (block.type === 'bullet-list') {
+      parts.push(`<ul>${block.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+    }
+  }
+
+  if (signOff) {
+    if (parts.length > 0) {
+      parts.push('<div>&nbsp;</div>');
+    }
+    parts.push(`<div>${escapeHtml(signOff)}</div>`);
+  }
+
+  return parts.join('');
+}
+
+/**
+ * Serialize AST blocks to email HTML.
+ * Paragraphs -> <p>, bullets -> <ul><li>, wrapped in full <html><style><body> shell.
+ */
+function serializeEmail(blocks, signOff) {
+  const parts = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+
+    if (i > 0) {
+      parts.push('<p>&nbsp;</p>');
+    }
+
+    if (block.type === 'paragraph') {
+      if (isSectionHeading(block.content)) {
+        // Use rawHtml if available (preserves inline tags), else escape plain text
+        const inner = block.rawHtml || escapeHtml(block.content);
+        parts.push(`<p><strong>${inner}</strong></p>`);
+      } else {
+        const inner = block.rawHtml || escapeHtml(block.content);
+        parts.push(`<p>${inner}</p>`);
+      }
+    } else if (block.type === 'bullet-list') {
+      parts.push(`<ul>${block.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+    }
+  }
+
+  if (signOff) {
+    if (parts.length > 0) {
+      parts.push('<p>&nbsp;</p>');
+    }
+    parts.push(`<p>${escapeHtml(signOff)}</p>`);
+  }
+
+  const bodyInner = parts.join('');
+
+  return `<html>
+<head>
+<style>
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, Arial, sans-serif;
+  font-size: 11pt;
+  color: #333333;
+}
+table {
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+th, td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+th {
+  background-color: #f2f2f2;
+  font-weight: bold;
+}
+h3 {
+  color: #2c3e50;
+  margin-top: 15px;
+  margin-bottom: 10px;
+}
+ul, ol {
+  margin: 10px 0;
+}
+</style>
+</head>
+<body>${bodyInner}</body>
+</html>`;
+}
+
+// ─── public surface ───────────────────────────────────────────────────────────
+
+/**
+ * The ONE canonical outbound formatting function.
+ *
+ * @param {object} opts
+ * @param {string} opts.content   - Raw input: HTML or plain text
+ * @param {'teams'|'email'} opts.target - Rendering target
+ * @param {string} [opts.signOff] - Trailing sign-off line; defaults to OUTBOUND_SIGN_OFF env or '-agent'
+ * @param {Array}  [opts.mentions] - Pass-through only; renderOutbound does not modify it
+ * @returns {{ html: string, contentType: 'html' }}
+ */
+function renderOutbound({ content, target, signOff, mentions }) {
+  if (target !== 'teams' && target !== 'email') {
+    throw new Error(`renderOutbound: unknown target '${target}'. Must be 'teams' or 'email'.`);
+  }
+
+  // Markdown warning — platforms render it as literal characters. Warn loudly; don't modify.
+  if (detectMarkdown(content)) {
+    console.warn(
+      `[grounded-mcp] Markdown detected in outbound content for target='${target}'. ` +
+      `Teams and Outlook render Markdown as literal characters. ` +
+      `Pass explicit HTML (<strong>, <em>, <p>, <br>) instead.`
+    );
+  }
+
+  const resolvedSignOff = signOff !== undefined ? signOff : DEFAULT_SIGN_OFF;
+
+  // Step 1: parse into AST
+  const blocks = parseToBlocks(content);
+
+  // Step 2: target-specific serialize + sign-off
+  let html;
+  if (target === 'teams') {
+    html = serializeTeams(blocks, resolvedSignOff);
+  } else {
+    html = serializeEmail(blocks, resolvedSignOff);
+  }
+
+  return { html, contentType: 'html' };
+}
+
 module.exports = {
   DEFAULT_SIGN_OFF,
   formatPlainTextOutbound,
   formatHtmlOutbound,
-  containsMarkdown,
-  stripMarkdown
+  renderOutbound,
+  detectMarkdown
 };

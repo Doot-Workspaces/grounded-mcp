@@ -9,7 +9,7 @@ const { ensureAuthenticated } = require('../auth');
 const { callGraphAPI } = require('../utils/graph-api');
 const { safeTool } = require('../utils/errors');
 const config = require('../config');
-const { formatPlainTextOutbound, formatHtmlOutbound } = require('../utils/outbound-format');
+const { formatPlainTextOutbound, formatHtmlOutbound, renderOutbound } = require('../utils/outbound-format');
 
 // Submodule imports
 const { handleEmailSearch } = require('./search');
@@ -373,7 +373,7 @@ async function sendEmail(accessToken, params) {
       };
     }
 
-    const formattedBody = wrapHtmlBody(formatHtmlOutbound(params.body, { maxBodyLines: 5 }));
+    const { html: formattedBody } = renderOutbound({ content: params.body, target: 'email' });
 
     const message = {
       subject: params.subject,
@@ -453,7 +453,12 @@ async function replyToEmail(accessToken, params) {
       };
     }
 
-    const formattedReplyHtml = formatHtmlOutbound(params.body, { maxBodyLines: 5 });
+    // renderOutbound produces a full <html>…</html> document for email target.
+    // mergeReplyBodyHtml expects an inner fragment (body content only) so it can
+    // wrap the reply + quoted thread together in one shell via wrapHtmlBody.
+    const { html: _replyFullHtml } = renderOutbound({ content: params.body, target: 'email' });
+    const _replyBodyMatch = _replyFullHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    const formattedReplyHtml = _replyBodyMatch ? _replyBodyMatch[1].trim() : _replyFullHtml;
 
     // Only add message object if we need to override from/to/cc
     const messageOverrides = {};
@@ -636,7 +641,7 @@ async function createDraft(accessToken, params) {
     if (params.body) {
       draftMessage.body = {
         contentType: "HTML",
-        content: wrapHtmlBody(formatHtmlOutbound(params.body, { maxBodyLines: 5 }))
+        content: renderOutbound({ content: params.body, target: 'email' }).html
       };
     }
 
@@ -705,7 +710,7 @@ async function updateDraft(accessToken, params) {
     if (updateParams.body) {
       updateMessage.body = {
         contentType: "HTML",
-        content: wrapHtmlBody(formatHtmlOutbound(updateParams.body, { maxBodyLines: 5 }))
+        content: renderOutbound({ content: updateParams.body, target: 'email' }).html
       };
     }
 
