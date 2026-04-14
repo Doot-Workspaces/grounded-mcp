@@ -1,5 +1,5 @@
 const { describe, it, expect } = require('@jest/globals');
-const { formatHtmlOutbound } = require('../utils/outbound-format');
+const { formatHtmlOutbound, containsMarkdown, stripMarkdown } = require('../utils/outbound-format');
 
 describe('outbound formatter', () => {
   it('renders section headings with spacing and the sign-off', () => {
@@ -58,5 +58,32 @@ describe('outbound formatter', () => {
     expect(html).toContain('<ul><li>Confirm sign-off content.</li><li>Confirm no section collapse.</li></ul>');
     expect(html).toContain('<p>Thanks,</p>');
     expect(html.endsWith('<p>-agent</p>')).toBe(true);
+  });
+
+  it('detects Markdown bold, headings, and tables', () => {
+    expect(containsMarkdown('**bold text** here')).toBe(true);
+    expect(containsMarkdown('## Heading')).toBe(true);
+    expect(containsMarkdown('| col1 | col2 |')).toBe(true);
+    expect(containsMarkdown('Plain sentence with no markdown.')).toBe(false);
+    expect(containsMarkdown('<p>Already HTML</p>')).toBe(false);
+  });
+
+  it('strips Markdown syntax cleanly', () => {
+    expect(stripMarkdown('**bold**')).toBe('bold');
+    expect(stripMarkdown('# Heading')).toBe('Heading');
+    expect(stripMarkdown('`code snippet`')).toBe('code snippet');
+    expect(stripMarkdown('*italic*')).toBe('italic');
+    expect(stripMarkdown('_italic_')).toBe('italic');
+  });
+
+  it('strips Markdown before emitting HTML to avoid literal characters in Teams', () => {
+    const html = formatHtmlOutbound(
+      '**Status:** All done.',
+      { maxBodyLines: 0, signOff: '' }
+    );
+
+    expect(html).not.toContain('**');
+    expect(html).toContain('Status:');
+    expect(html).toContain('All done.');
   });
 });

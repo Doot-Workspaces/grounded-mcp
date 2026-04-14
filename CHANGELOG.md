@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Markdown detection and stripping** in `outbound-format.js`: `containsMarkdown()` and `stripMarkdown()` exports. Teams and Outlook both render Markdown as literal characters — every consumer now gets automatic stripping before HTML emission. Catches `**bold**`, headings (`#` through `######`), inline code, tables, and italic patterns.
+
 ## v1.0.0 — Initial OSS Release
 
 **Released:** 2026-04-11  

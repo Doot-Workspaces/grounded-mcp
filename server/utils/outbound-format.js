@@ -1,6 +1,15 @@
 const DEFAULT_SIGN_OFF = process.env.OUTBOUND_SIGN_OFF !== undefined ? process.env.OUTBOUND_SIGN_OFF : '-agent';
 const SIGN_OFF_VARIANTS = /^(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i;
 const RICH_HTML_PATTERN = /<(table|thead|tbody|tr|td|th|ul|ol|li|h[1-6]|blockquote|pre|code|p|div|br)\b/i;
+
+// Markdown patterns that Teams renders as literal characters — must be caught and converted
+const MARKDOWN_BOLD_RE = /\*\*([^*]+)\*\*/g;
+const MARKDOWN_ITALIC_STAR_RE = /(?<!\*)\*([^*]+)\*(?!\*)/g;
+const MARKDOWN_ITALIC_UNDER_RE = /(?<!_)_([^_]+)_(?!_)/g;
+const MARKDOWN_HEADING_RE = /^#{1,6}\s+/gm;
+const MARKDOWN_INLINE_CODE_RE = /`([^`]+)`/g;
+const MARKDOWN_TABLE_RE = /^\|.+\|$/m;
+const MARKDOWN_DETECT_RE = /(\*\*[^*]+\*\*)|(^#{1,6}\s)|(^\|.+\|$)/m;
 const SECTION_HEADING_BODY = "[A-Z][A-Za-z0-9/&(),' -]{1,80}:";
 const INLINE_SECTION_SPLIT_PATTERN = new RegExp(
   `(?<=[.?!])\\s+(${SECTION_HEADING_BODY})(?=\\s|$)`,
@@ -12,6 +21,30 @@ const LEADING_SECTION_SPLIT_PATTERN = new RegExp(
 const STANDALONE_SECTION_PATTERN = new RegExp(`^${SECTION_HEADING_BODY}$`);
 const INLINE_CLOSER_SPLIT_PATTERN = /(?<=[.?!])\s+(Thanks,)(?=\s|$)/g;
 const SENTENCE_SPLIT_PATTERN = /(?<=[.!?])\s+(?=[A-Z0-9])/;
+
+/**
+ * Detect Markdown syntax in content. Teams and Outlook both render markdown
+ * as literal characters — every consumer needs this caught at the boundary.
+ */
+function containsMarkdown(text) {
+  if (!text) return false;
+  return MARKDOWN_DETECT_RE.test(text);
+}
+
+/**
+ * Strip Markdown syntax so the formatter can re-emit clean HTML.
+ * Converts **bold** → bold (later wrapped in <strong>), strips headings,
+ * unwraps inline code, removes table pipes.
+ */
+function stripMarkdown(text) {
+  if (!text) return text;
+  return text
+    .replace(MARKDOWN_BOLD_RE, '$1')
+    .replace(MARKDOWN_HEADING_RE, '')
+    .replace(MARKDOWN_INLINE_CODE_RE, '$1')
+    .replace(MARKDOWN_ITALIC_STAR_RE, '$1')
+    .replace(MARKDOWN_ITALIC_UNDER_RE, '$1');
+}
 
 function decodeHtmlEntities(text) {
   return text
@@ -182,7 +215,9 @@ function formatPlainTextOutbound(content, options = {}) {
   const { maxBodyLines = 3, signOff = DEFAULT_SIGN_OFF } = options;
   const source = normalizeLine((content || '').replace(/\r/g, '')) ? content : '';
   const asText = /<[^>]+>/.test(source) ? extractText(source) : source;
-  const sanitizedText = asText
+  // Strip Markdown before further processing — Teams/Outlook render it as literal characters
+  const demarkdowned = containsMarkdown(asText) ? stripMarkdown(asText) : asText;
+  const sanitizedText = demarkdowned
     .replace(/\s+(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i, '')
     .replace(/\bThanks,\s*(?:Prody-dris-agent|-agent)\s*$/i, 'Thanks,')
     .replace(/\s+(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i, '');
@@ -271,5 +306,7 @@ function formatHtmlOutbound(content, options = {}) {
 module.exports = {
   DEFAULT_SIGN_OFF,
   formatPlainTextOutbound,
-  formatHtmlOutbound
+  formatHtmlOutbound,
+  containsMarkdown,
+  stripMarkdown
 };
