@@ -120,7 +120,7 @@ describe('Teams Module - Consolidated Tools', () => {
         'teams/team-id/channels/channel-id/messages',
         expect.objectContaining({
           body: {
-            content: '<p>Update</p><p>&nbsp;</p><ul><li>Fixed locally</li><li>New 2-person chats will now open as one-on-one chats</li><li>This chat was created before the fix</li></ul><p>&nbsp;</p><p>-agent</p>',
+            content: '<div>Update</div><div>&nbsp;</div><ul><li>Fixed locally</li><li>New 2-person chats will now open as one-on-one chats</li><li>This chat was created before the fix</li></ul><div>&nbsp;</div><div>-agent</div>',
             contentType: 'html'
           }
         })
@@ -183,7 +183,7 @@ describe('Teams Module - Consolidated Tools', () => {
         'chats/chat-id/messages',
         expect.objectContaining({
           body: {
-            content: '<p>Update</p><br><br><ul><li>Fixed locally</li><li>New 2-person chats will now open as one-on-one chats</li><li>This chat was created before the fix</li></ul><br><br><p>-agent</p>',
+            content: '<div>Update</div><div>&nbsp;</div><ul><li>Fixed locally</li><li>New 2-person chats will now open as one-on-one chats</li><li>This chat was created before the fix</li></ul><div>&nbsp;</div><div>-agent</div>',
             contentType: 'html'
           }
         })
@@ -206,7 +206,7 @@ describe('Teams Module - Consolidated Tools', () => {
         'chats/chat-id/messages',
         expect.objectContaining({
           body: {
-            content: '<p>Hello,</p><br><br><p>A reviewer is looking at the draft from our side.</p><br><br><p>-agent</p>',
+            content: '<div>Hello,</div><div>&nbsp;</div><div>A reviewer is looking at the draft from our side.</div><div>&nbsp;</div><div>-agent</div>',
             contentType: 'html'
           }
         })

@@ -2,9 +2,26 @@
 
 ## Unreleased
 
-### Added
+### Added — consolidation from runtime fork
 
-- **Markdown detection and stripping** in `outbound-format.js`: `containsMarkdown()` and `stripMarkdown()` exports. Teams and Outlook both render Markdown as literal characters — every consumer now gets automatic stripping before HTML emission. Catches `**bold**`, headings (`#` through `######`), inline code, tables, and italic patterns.
+This release brings Grounded MCP in line with work developed in the downstream
+fork used for the `product@dhwaniris.com` runtime. Going forward, Grounded MCP
+is the single source of truth for all MCP connector work.
+
+- **Unified `renderOutbound({content, target})`** — one canonical formatting pipeline. Parses input to an AST (paragraph | bullet-list | divider), then serializes target-specific (Teams uses `<div>`, Email uses `<p>` wrapped in an email-safe HTML shell).
+- **Inline HTML preservation** — `<strong>`, `<em>`, `<a>`, and `<at>` mention tags survive round-trip through the AST and serializers. Teams `@mention` markers pass through `escapeHtml()` verbatim (placeholder substitution) so Graph doesn't reject mention sends.
+- **Calendar event bodies routed through `renderOutbound`** — calendar invites get the same formatting discipline as Teams and email.
+- **Markdown detection with warning** — `detectMarkdown()` exported; `renderOutbound` emits `console.warn` when markdown is detected in outbound content. Content is not modified — callers are expected to pass explicit HTML if they want bold/italic. This replaces the silent-strip behavior from v1.0.0.
+- **CI gate** — `.github/workflows/server-tests.yml` runs Jest on every change touching `server/**`, with a dedicated "format discipline" step that re-runs outbound-format, Teams, and Teams mention tests independently.
+
+### Changed
+
+- `serializeTeams` now prefers `block.rawHtml` over escaped plain text when available — preserves inline formatting in Teams output.
+- `escapeHtml` preserves `<at id="N">...</at>` mention markers via placeholder substitution.
+
+### Removed
+
+- Silent markdown stripping (`stripMarkdown()`, `containsMarkdown()` exports from PR #1). Replaced with the warning approach above. Agents that silently stripped markdown should now either pass HTML directly or expect the warning log.
 
 ## v1.0.0 — Initial OSS Release
 

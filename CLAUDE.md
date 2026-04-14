@@ -45,6 +45,34 @@ Set it in `server/.env`.
 
 See [SETUP-GUIDE.md](SETUP-GUIDE.md) for step-by-step instructions.
 
+## Workflow Discipline (Source of Truth Rules)
+
+These rules exist to prevent the parallel-path drift that caused formatting regressions across forks.
+
+**Canonical local path:** `~/Workspaces/grounded-mcp`. This is the one clone every Claude Code session and Codex session should operate from. Do not clone to other paths for the same repo.
+
+**One session per repo at a time.** If another agent (Claude or Codex) is editing this repo, coordinate before opening a parallel session. Parallel edits on the same file in separate sessions are the documented root cause of formatting drift (mcp-m365-config fork, April 2026).
+
+**Runtime equals upstream.** The live MCP runtime for `product@dhwaniris.com` is registered in `~/.claude/.mcp.json` pointing to `~/Workspaces/grounded-mcp/server/index.js`. Fix lands → `git pull` → MCP restart. There is no "fixed in runtime, will sync later."
+
+**Retired repos:**
+- `prody-dris/mcp-m365-config` (GitHub) — archived. Do not commit here.
+- `~/Workspaces/mcp-m365-config` (local) — deleted after migration to grounded-mcp.
+
+**CI gate:** `.github/workflows/server-tests.yml` runs Jest on every change touching `server/**`. The "format discipline" step protects outbound-format, Teams, and mention tests.
+
+## Separation of Purpose
+
+| Belongs in grounded-mcp | Belongs in prody-dris-agent |
+|-------------------------|-----------------------------|
+| Universal formatting (`renderOutbound`, AST, serializers) | Agent voice, tone, approval gates |
+| Platform facts (markdown warning, `<at>` preservation, calendar routing) | Footer dedup (`— Prody`) |
+| Security hooks in `hooks/` (generic) | Nihaan-on-CC enforcement |
+| Tests for the connector | CC hook (`mcp-office365-guard.py`) |
+| CI gate | Agent-specific guard scripts (e.g., `teams_message_guard.py` extras) |
+
+If a rule applies to every MCP consumer, it goes here. If it's Prody's opinion or Nihaan's workflow, it goes to prody-dris-agent.
+
 ## Development Commands
 
 ```bash
