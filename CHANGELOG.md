@@ -18,6 +18,7 @@ is the single source of truth for all MCP connector work.
 
 - `serializeTeams` now prefers `block.rawHtml` over escaped plain text when available — preserves inline formatting in Teams output.
 - `escapeHtml` preserves `<at id="N">...</at>` mention markers via placeholder substitution.
+- `teams_chat.mentions` parameter description expanded (see `server/teams/consolidated/index.js`) to explicitly warn that bolding a name is not a mention — MCP consumers must pass a `mentions` array entry with an AAD user id, matched by `<at id="N">` tags in content, or the "tag" silently fails. Also documents the edit-vs-notify rule: `update_message` preserves mentions if re-passed but never re-triggers notifications. New platform-fact reference: `server/docs/TEAMS-MENTIONS.md`.
 
 ### Removed
 
