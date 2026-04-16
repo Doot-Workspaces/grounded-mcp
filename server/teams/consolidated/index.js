@@ -88,7 +88,7 @@ const chatToolSchema = {
     },
     mentions: {
       type: 'array',
-      description: 'Array of mention objects for send_message — enables true @mention pings in Teams. Each item: { id: number, mentionText: string, mentioned: { user: { id: string, displayName: string, userIdentityType: "aadUser" } } }. HTML content must include <at id="N">DisplayName</at> tags matching each mention id.',
+      description: 'Array of mention objects for send_message / update_message — REQUIRED when tagging people. Bolding a name (<b>Name</b>) is NOT a mention: it renders bold text but fires zero notifications and carries no identifier. To actually ping someone you must (a) pass a mentions array entry with their AAD user id and (b) include a matching <at id="N">DisplayName</at> tag in the HTML content — the id must match on both sides. Get AAD ids via the directory tool (lookup_user). Each item shape: { id: number, mentionText: string, mentioned: { user: { id: string, displayName: string, userIdentityType: "aadUser" } } }. Edit-vs-notify: update_message preserves mentions if re-passed, but never re-triggers Teams notifications — if the first send missed the mentions, the recovery is to update the original AND send a short fresh follow-up with mentions to actually ping.',
       items: { type: 'object' }
     },
     userId: {
