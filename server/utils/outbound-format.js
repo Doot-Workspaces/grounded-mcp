@@ -1,5 +1,5 @@
-const DEFAULT_SIGN_OFF = process.env.OUTBOUND_SIGN_OFF !== undefined ? process.env.OUTBOUND_SIGN_OFF : '-';
-const SIGN_OFF_VARIANTS = /^(?:(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|Prody|-agent)|[-–—])\s*$/i;
+const DEFAULT_SIGN_OFF = process.env.OUTBOUND_SIGN_OFF !== undefined ? process.env.OUTBOUND_SIGN_OFF : '';
+const SIGN_OFF_VARIANTS = /^(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|Prody|-agent)\s*$/i;
 const RICH_HTML_PATTERN = /<(table|thead|tbody|tr|td|th|ul|ol|li|h[1-6]|blockquote|pre|code|p|div|br)\b/i;
 
 // Markdown detection — Teams and Outlook render Markdown as literal characters.
