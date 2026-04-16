@@ -36,7 +36,7 @@ describe('Email Module - Formatting Enforcement', () => {
         message: expect.objectContaining({
           body: expect.objectContaining({
             contentType: 'HTML',
-            content: expect.stringContaining('<p>Fixed locally.</p><p>&nbsp;</p><p>New 2-person chats will now open as one-on-one chats.</p><p>&nbsp;</p><p>This email validates the outbound formatter.</p><p>&nbsp;</p><p>-agent</p>')
+            content: expect.stringContaining('<p>Fixed locally.</p><p>New 2-person chats will now open as one-on-one chats.</p><p>This email validates the outbound formatter.</p><p>-</p>')
           })
         })
       }),
@@ -77,7 +77,7 @@ describe('Email Module - Formatting Enforcement', () => {
       expect.objectContaining({
         body: expect.objectContaining({
           contentType: 'HTML',
-          content: expect.stringContaining('<div class="mcp-reply-block"><p>Fixed locally.</p><p>&nbsp;</p><p>New 2-person chats will now open as one-on-one chats.</p><p>&nbsp;</p><p>This email validates the outbound formatter.</p><p>&nbsp;</p><p>-agent</p></div>')
+          content: expect.stringContaining('<div class="mcp-reply-block"><p>Fixed locally.</p><p>New 2-person chats will now open as one-on-one chats.</p><p>This email validates the outbound formatter.</p><p>-</p></div>')
         })
       }),
       null
@@ -101,7 +101,7 @@ describe('Email Module - Formatting Enforcement', () => {
       expect.objectContaining({
         body: expect.objectContaining({
           contentType: 'HTML',
-          content: expect.stringContaining('<p>Fixed locally.</p><p>&nbsp;</p><p>New 2-person chats will now open as one-on-one chats.</p><p>&nbsp;</p><p>This draft validates the outbound formatter.</p><p>&nbsp;</p><p>-agent</p>')
+          content: expect.stringContaining('<p>Fixed locally.</p><p>New 2-person chats will now open as one-on-one chats.</p><p>This draft validates the outbound formatter.</p><p>-</p>')
         })
       }),
       null

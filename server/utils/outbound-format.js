@@ -1,5 +1,5 @@
-const DEFAULT_SIGN_OFF = process.env.OUTBOUND_SIGN_OFF !== undefined ? process.env.OUTBOUND_SIGN_OFF : '-agent';
-const SIGN_OFF_VARIANTS = /^(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i;
+const DEFAULT_SIGN_OFF = process.env.OUTBOUND_SIGN_OFF !== undefined ? process.env.OUTBOUND_SIGN_OFF : '-';
+const SIGN_OFF_VARIANTS = /^(?:(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|Prody|-agent)|[-–—])\s*$/i;
 const RICH_HTML_PATTERN = /<(table|thead|tbody|tr|td|th|ul|ol|li|h[1-6]|blockquote|pre|code|p|div|br)\b/i;
 
 // Markdown detection — Teams and Outlook render Markdown as literal characters.
@@ -230,9 +230,6 @@ function convertLinesToHtml(lines) {
 
   const flushList = () => {
     if (listItems.length > 0) {
-      if (blocks.length > 0) {
-        blocks.push('<p>&nbsp;</p>');
-      }
       blocks.push(`<ul>${listItems.join('')}</ul>`);
       listItems = [];
     }
@@ -250,10 +247,6 @@ function convertLinesToHtml(lines) {
     }
 
     flushList();
-    if (blocks.length > 0) {
-      blocks.push('<p>&nbsp;</p>');
-    }
-
     if (isSectionHeading(line)) {
       blocks.push(`<p><strong>${escapeHtml(line)}</strong></p>`);
       continue;
@@ -468,8 +461,8 @@ function parsePlainTextToBlocks(text) {
 
 /**
  * Serialize AST blocks to Teams HTML.
- * Paragraphs -> <div>, blank separators -> <div>&nbsp;</div>, bullets -> <ul><li>.
- * Never emits <p>.
+ * Paragraphs -> <div>, bullets -> <ul><li>, sign-off -> <div>.
+ * Keep spacing lean; rely on block elements instead of explicit spacer nodes.
  */
 function serializeTeams(blocks, signOff) {
   const parts = [];
@@ -477,12 +470,9 @@ function serializeTeams(blocks, signOff) {
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
 
-    if (i > 0) {
-      parts.push('<div>&nbsp;</div>');
-    }
-
     if (block.type === 'paragraph') {
-      const inner = block.rawHtml || escapeHtml(block.content);
+      // parseHtmlToBlocks converts <br> → \n during parsing; restore them for Teams rendering
+      const inner = (block.rawHtml || escapeHtml(block.content)).replace(/\n/g, '<br>');
       parts.push(`<div>${inner}</div>`);
     } else if (block.type === 'bullet-list') {
       parts.push(`<ul>${block.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
@@ -490,13 +480,11 @@ function serializeTeams(blocks, signOff) {
   }
 
   if (signOff) {
-    if (parts.length > 0) {
-      parts.push('<div>&nbsp;</div>');
-    }
     parts.push(`<div>${escapeHtml(signOff)}</div>`);
   }
 
-  return parts.join('');
+  // Join blocks with a blank-line spacer so sections are visually separated in Teams
+  return parts.join('<div><br></div>');
 }
 
 /**
@@ -508,10 +496,6 @@ function serializeEmail(blocks, signOff) {
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
-
-    if (i > 0) {
-      parts.push('<p>&nbsp;</p>');
-    }
 
     if (block.type === 'paragraph') {
       if (isSectionHeading(block.content)) {
@@ -528,9 +512,6 @@ function serializeEmail(blocks, signOff) {
   }
 
   if (signOff) {
-    if (parts.length > 0) {
-      parts.push('<p>&nbsp;</p>');
-    }
     parts.push(`<p>${escapeHtml(signOff)}</p>`);
   }
 

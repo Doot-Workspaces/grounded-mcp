@@ -24,23 +24,14 @@ describe('outbound formatter (legacy formatHtmlOutbound)', () => {
 
     expect(html).toBe(
       '<p>Hi user,</p>' +
-      '<p>&nbsp;</p>' +
       '<p>Post-patch render test.</p>' +
-      '<p>&nbsp;</p>' +
       '<p><strong>Summary:</strong></p>' +
-      '<p>&nbsp;</p>' +
       '<p>This should preserve section spacing.</p>' +
-      '<p>&nbsp;</p>' +
       '<p><strong>Direction Agreed:</strong></p>' +
-      '<p>&nbsp;</p>' +
       '<ul><li>First bullet stays separate.</li><li>Second bullet stays separate.</li><li>Third bullet stays separate.</li></ul>' +
-      '<p>&nbsp;</p>' +
       '<p><strong>Action Items:</strong></p>' +
-      '<p>&nbsp;</p>' +
       '<ul><li>Confirm sign-off content.</li><li>Confirm no section collapse.</li></ul>' +
-      '<p>&nbsp;</p>' +
       '<p>Thanks,</p>' +
-      '<p>&nbsp;</p>' +
       '<p>-agent</p>'
     );
   });
@@ -62,7 +53,7 @@ describe('outbound formatter (legacy formatHtmlOutbound)', () => {
 });
 
 describe('renderOutbound — Teams target', () => {
-  it('converts <p> HTML input to <div> output — never emits <p> for Teams', () => {
+  it('converts <p> HTML input to <div> output with spacers — never emits <p> for Teams', () => {
     const { html, contentType } = renderOutbound({
       content: '<p>para1</p><p>para2</p>',
       target: 'teams',
@@ -73,11 +64,11 @@ describe('renderOutbound — Teams target', () => {
     expect(html).not.toMatch(/<p/i);
     expect(html).toContain('<div>para1</div>');
     expect(html).toContain('<div>para2</div>');
-    // Separator between paragraphs
-    expect(html).toContain('<div>&nbsp;</div>');
+    // Blocks are separated by blank-line spacers so sections have visible spacing in Teams
+    expect(html).toContain('<div>para1</div><div><br></div><div>para2</div>');
   });
 
-  it('plain text with blank-line separation produces <div>+<div>&nbsp;</div>', () => {
+  it('plain text with blank-line separation produces spaced <div> blocks', () => {
     const { html } = renderOutbound({
       content: 'para1\n\npara2',
       target: 'teams',
@@ -86,8 +77,8 @@ describe('renderOutbound — Teams target', () => {
 
     expect(html).not.toMatch(/<p/i);
     expect(html).toContain('<div>para1</div>');
-    expect(html).toContain('<div>&nbsp;</div>');
-    expect(html).toContain('<div>para2</div>');
+    // Blocks are separated by blank-line spacers for visible spacing in Teams
+    expect(html).toContain('<div>para1</div><div><br></div><div>para2</div>');
   });
 
 
@@ -116,6 +107,23 @@ describe('renderOutbound — Teams target', () => {
     expect(html).not.toMatch(/<p/i);
   });
 
+  it('treats bare Prody as an existing sign-off on reprocessing', () => {
+    const first = renderOutbound({
+      content: 'Hello',
+      target: 'teams',
+      signOff: 'Prody'
+    });
+
+    const second = renderOutbound({
+      content: first.html,
+      target: 'teams',
+      signOff: 'Prody'
+    });
+
+    const signOffCount = (second.html.match(/Prody/g) || []).length;
+    expect(signOffCount).toBe(1);
+  });
+
   it('appends sign-off exactly once even on reprocessing', () => {
     const first = renderOutbound({
       content: 'Hello',
@@ -134,15 +142,17 @@ describe('renderOutbound — Teams target', () => {
     expect(signOffCount).toBe(1);
   });
 
-  it('no double-spacing — <div>&nbsp;</div> appears between blocks, not doubled', () => {
+  it('emits <div><br></div> spacers between blocks — not &nbsp; spacers', () => {
     const { html } = renderOutbound({
       content: '<p>para1</p><p>para2</p><p>para3</p>',
       target: 'teams',
       signOff: ''
     });
 
-    // Should not have two consecutive separators
-    expect(html).not.toMatch(/<div>&nbsp;<\/div>\s*<div>&nbsp;<\/div>/i);
+    // Correct spacer: <div><br></div> — creates visible blank lines in Teams
+    expect(html).toContain('<div><br></div>');
+    // Wrong spacer: <div>&nbsp;</div> — never use this
+    expect(html).not.toContain('<div>&nbsp;</div>');
   });
 });
 
