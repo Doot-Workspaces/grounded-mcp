@@ -20,6 +20,10 @@ is the single source of truth for all MCP connector work.
 - `escapeHtml` preserves `<at id="N">...</at>` mention markers via placeholder substitution.
 - `teams_chat.mentions` parameter description expanded (see `server/teams/consolidated/index.js`) to explicitly warn that bolding a name is not a mention — MCP consumers must pass a `mentions` array entry with an AAD user id, matched by `<at id="N">` tags in content, or the "tag" silently fails. Also documents the edit-vs-notify rule: `update_message` preserves mentions if re-passed but never re-triggers notifications. New platform-fact reference: `server/docs/TEAMS-MENTIONS.md`.
 
+### Docs
+
+- **Venue booking reference** — new platform-fact doc `server/docs/CALENDAR-VENUES.md` covering how to actually reserve a physical room via `calendar.create`. Setting the `location` field reserves nothing; the room's resource mailbox must be passed as an attendee for Exchange to auto-accept/decline and block the room's calendar. Covers: the `location`-vs-attendee trap, discovering a room's resource email, auto-response timing (5–15s, via mail, not in the create response), recovery when a room declines (delete+recreate, not update — the update path silently drops attendees), and `findMeetingTimes` caveats when rooms are in the attendee list.
+
 ### Removed
 
 - Silent markdown stripping (`stripMarkdown()`, `containsMarkdown()` exports from PR #1). Replaced with the warning approach above. Agents that silently stripped markdown should now either pass HTML directly or expect the warning log.
