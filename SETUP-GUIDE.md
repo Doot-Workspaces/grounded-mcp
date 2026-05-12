@@ -6,7 +6,7 @@
 
 ## Prerequisites
 
-- **Node.js** v18+ installed
+- **Node.js** v20+ installed (Node 16 and 18 are end-of-life)
 - **Claude Code CLI**, **Claude Desktop**, or any MCP-compatible client
 - **Azure credentials** from an Entra ID app registration (see below)
 - **Admin consent** granted on your Entra ID tenant
