@@ -4,7 +4,7 @@ Complete setup guide for the Office MCP Server - a Model Context Protocol server
 
 ## Prerequisites
 
-- Node.js 16.0 or higher
+- Node.js 20.0 or higher (Node 16 and 18 are end-of-life)
 - Microsoft 365 account (personal or work/school)
 - Azure Portal access for app registration
 - Claude Desktop application

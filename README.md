@@ -24,7 +24,7 @@ Built on top of [office-365-mcp-server](https://github.com/hvkshetry/office-365-
 
 ## What We Added
 
-Five additions on top of the upstream server:
+Additions on top of the upstream server:
 
 | Addition | What it does |
 |---|---|
@@ -33,6 +33,8 @@ Five additions on top of the upstream server:
 | **Runtime verification** | `npm run runtime:info` returns a live fingerprint: version, git commit, dirty flag, PID, entrypoint. Know exactly what's running. |
 | **Operational security docs** | RULES.md (AI messaging safety principles), SECURITY.md (data flow, incident response), SETUP-GUIDE.md (step-by-step Azure setup) |
 | **OUTBOUND_SIGN_OFF env control** | Centralized sign-off behavior; set to empty string for clean-pipe mode (no sign-off appended) |
+| **Runtime input validation** | Every `tools/call` is validated against the tool's published `inputSchema` before reaching the handler; invalid arguments return a clear `InvalidParams` error so the LLM can self-correct (`server/utils/validate-input.js`) |
+| **Current MCP transport** | Server speaks the current Streamable HTTP transport (spec revision 2025-11-25) on a single `/mcp` endpoint. Deprecated SSE transport removed. |
 
 ## Architecture
 
@@ -55,10 +57,12 @@ Claude Code / Claude Desktop / Any MCP Client
 
 ### 1. Prerequisites
 
-- Node.js v18+
+- Node.js v20+ (Node 16 and 18 are end-of-life)
 - A Microsoft 365 account (work or school)
 - An Azure Entra ID app registration with admin consent
-- Claude Code CLI, Claude Desktop, or any MCP client
+- Claude Code CLI, Claude Desktop, or any MCP client (server negotiates any
+  supported spec revision: 2024-10-07 through 2025-11-25 — any recent Claude
+  Code / Claude Desktop build works)
 
 ### 2. Clone and Install
 
@@ -112,6 +116,16 @@ Add to your project's `.mcp.json` or `~/.claude/settings.json`:
 ```
 
 Use one canonical server entry only. Do not keep multiple MCP entries pointing at older clones or copied installs of the repo.
+
+#### Optional: HTTP (Streamable) transport
+
+For hosting the server as a network service (e.g. one MCP for a shared workstation, Docker, or remote access via tunnel), start it in HTTP mode:
+
+```bash
+TRANSPORT_TYPE=http HTTP_PORT=3333 HTTP_HOST=127.0.0.1 node index.js
+```
+
+The server exposes a single endpoint at `http://HTTP_HOST:HTTP_PORT/mcp` speaking the MCP **Streamable HTTP** transport (spec revision 2025-11-25). The deprecated SSE transport (`/sse` + `/message`) was removed in v1.1.0. Clients using `StreamableHTTPClientTransport` connect directly to `/mcp`.
 
 ### 6. Test
 
@@ -251,11 +265,18 @@ See [RULES.md](RULES.md) for recommended safety practices when connecting AI too
 Contributions welcome. This builds on top of [hvkshetry/office-365-mcp-server](https://github.com/hvkshetry/office-365-mcp-server) (MIT license).
 
 Areas for improvement:
-- Better error messages and retry logic
-- Batch operations for Graph API
-- More complete Teams meeting support
-- Timezone handling improvements
-- Additional safety hooks and approval gates
+- **Tier 2 — modern server API:** migrate from low-level `Server` + `setRequestHandler` to `McpServer` + `registerTool`. SDK 1.29 supports Standard Schema (Zod v4, Valibot, ArkType) natively, so `inputSchema` and `outputSchema` can be first-class typed schemas instead of hand-rolled JSON Schema.
+- **Structured output** (`structuredContent` + `outputSchema`) for list-style tools (emails, events, files) so clients can render them as native UI.
+- **URL Mode Elicitation** (MCP spec 2025-11-25, SEP-1036): replace the bespoke `office-auth-server.js` browser consent flow with the spec-native pattern — server sends the user to the Microsoft OAuth URL, Entra ID handles consent, the client never touches credentials.
+- **Task-based Workflows** (MCP spec 2025-11-25, SEP-1686): wrap long Graph operations (bulk moves, large attachment downloads, batch sends) in the `working` / `input_required` / `completed` task lifecycle so clients can poll instead of holding a request open.
+- **Centralized Graph client** with 429/5xx exponential backoff, `Retry-After` handling, and `$batch` helper.
+- **Proactive OAuth token refresh** (refresh when <5 min to expiry, not on 401).
+- **MCP resources and prompts:** `m365://me/profile`, `m365://inbox/recent`, `m365://calendar/today`; prompts for "Draft reply", "Meeting summary".
+- **OAuth 2.1 + PKCE as MCP Resource Server** if/when this is deployed as a remote shared service (spec's current standard for remote servers).
+- **Optional TypeScript migration** (or JSDoc + `checkJs`) for stricter types across tool schemas.
+- More complete Teams meeting support.
+- Timezone handling improvements.
+- Additional safety hooks and approval gates.
 
 ## License
 

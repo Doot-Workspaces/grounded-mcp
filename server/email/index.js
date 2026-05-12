@@ -18,6 +18,7 @@ const { handleEmailRules } = require('./rules');
 const { handleEmailCategories } = require('./categories');
 const { getFocusedInbox } = require('./focused');
 const { convertSharePointUrlToLocal, downloadEmbeddedAttachment, cleanupOldAttachments } = require('./attachments');
+const { buildAttachments, AttachmentError } = require('./build-attachments');
 
 // ============== CORE EMAIL CRUD ==============
 
@@ -410,6 +411,19 @@ async function sendEmail(accessToken, params) {
       }
     }
 
+    if (params.attachments && Array.isArray(params.attachments) && params.attachments.length > 0) {
+      try {
+        message.attachments = await buildAttachments(params.attachments);
+      } catch (err) {
+        if (err instanceof AttachmentError) {
+          return {
+            content: [{ type: "text", text: `Attachment error (${err.code}): ${err.message}` }]
+          };
+        }
+        throw err;
+      }
+    }
+
     const sendEndpoint = `${config.getMailboxPrefix(params.mailbox)}/sendMail`;
     await callGraphAPI(
       accessToken,
@@ -664,6 +678,19 @@ async function createDraft(accessToken, params) {
       draftMessage.bccRecipients = bccRecipients.map(email => ({
         emailAddress: { address: email }
       }));
+    }
+
+    if (params.attachments && Array.isArray(params.attachments) && params.attachments.length > 0) {
+      try {
+        draftMessage.attachments = await buildAttachments(params.attachments);
+      } catch (err) {
+        if (err instanceof AttachmentError) {
+          return {
+            content: [{ type: "text", text: `Attachment error (${err.code}): ${err.message}` }]
+          };
+        }
+        throw err;
+      }
     }
 
     const response = await callGraphAPI(
@@ -973,6 +1000,11 @@ const emailTools = [
           type: "array",
           items: { type: "string" },
           description: "BCC recipients"
+        },
+        attachments: {
+          type: "array",
+          items: { type: "string" },
+          description: "Absolute local file paths to attach (for send/draft). Inline path only — total size <= 3 MB. Paths must be under ATTACHMENT_ALLOWED_ROOTS (defaults: project dir, ~/Documents, ~/Downloads)."
         },
         draftId: { type: "string", description: "Draft ID (for update_draft, send_draft)" },
         // Search parameters

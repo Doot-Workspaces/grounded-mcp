@@ -14,6 +14,38 @@ is the single source of truth for all MCP connector work.
 - **Markdown detection with warning** — `detectMarkdown()` exported; `renderOutbound` emits `console.warn` when markdown is detected in outbound content. Content is not modified — callers are expected to pass explicit HTML if they want bold/italic. This replaces the silent-strip behavior from v1.0.0.
 - **CI gate** — `.github/workflows/server-tests.yml` runs Jest on every change touching `server/**`, with a dedicated "format discipline" step that re-runs outbound-format, Teams, and Teams mention tests independently.
 
+### Added — outbound attachments
+
+- **Outbound attachments for `mail.send` and `mail.draft`** via new `attachments`
+  parameter (array of absolute local file paths). Inline-only path: total payload
+  capped at 3 MB (Microsoft Graph's inline `sendMail` ceiling); larger files are
+  rejected with a clear `TOTAL_SIZE_EXCEEDED` error.
+- **Path allowlist** for outbound attachments: only paths under the project
+  directory, `~/Documents`, and `~/Downloads` are accepted by default.
+  Override via `ATTACHMENT_ALLOWED_ROOTS` env var (semicolon-separated absolute
+  paths).
+- **`server/email/build-attachments.js`** — new module that validates paths
+  (absolute, no null bytes, no symlinks, under allowed roots), enforces size
+  caps, detects MIME from extension, and produces Graph `fileAttachment`
+  objects. Exports `buildAttachments`, `AttachmentError`, `detectMime`,
+  `getAllowedRoots`, `DEFAULT_MAX_TOTAL_BYTES`.
+- **Tests**: `server/tests/build-attachments.test.js` (22 unit tests covering
+  validation, MIME map, and payload shape) plus 4 integration tests in
+  `server/tests/email.test.js` covering `mail.send` / `mail.draft` wiring,
+  allowlist enforcement, and backward compatibility when the param is omitted.
+
+### Added — runtime input validation
+
+- **`utils/validate-input.js`** — Ajv-based runtime validation of tool arguments
+  against each tool's `inputSchema`, applied at the server boundary before
+  handlers run.
+  - Schemas compiled once at startup; compile failures surface before first call.
+  - Validation errors returned as `McpError(InvalidParams)` with a path-annotated
+    message so the LLM can self-correct.
+  - Scalar-to-array coercion enabled (`coerceTypes: 'array'`) to match existing
+    handler tolerance (e.g. `to: "alice@x.com"` → `to: ["alice@x.com"]`).
+- **New dependencies**: `ajv ^8.17.1`, `ajv-formats ^3.0.1`.
+
 ### Changed
 
 - `serializeTeams` now prefers `block.rawHtml` over escaped plain text when available — preserves inline formatting in Teams output.

@@ -16,6 +16,7 @@ const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio
 const { ListToolsRequestSchema, CallToolRequestSchema, McpError, ErrorCode } = require("@modelcontextprotocol/sdk/types.js");
 const config = require('./config');
 const { formatRuntimeMetadataText, getRuntimeMetadata } = require('./utils/runtime-metadata');
+const { buildValidators, formatAjvErrors } = require('./utils/validate-input');
 
 // Import module tools
 const { authTools } = require('./auth');
@@ -55,6 +56,12 @@ const TOOLS = [
   ...directoryTools
 ];
 
+// Compile Ajv validators for every tool's inputSchema. Done once at startup so
+// tool/call dispatch is a cheap lookup + validate; schema compile errors surface
+// immediately instead of at first invocation.
+const VALIDATORS = buildValidators(TOOLS);
+console.error(`[VALIDATE] Compiled ${VALIDATORS.size} tool validators`);
+
 // Create server with tools capabilities
 // SDK handles initialize and ping automatically via setRequestHandler
 const server = new Server(
@@ -83,6 +90,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (!tool) {
     throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${name}`);
   }
+
+  // Validate args against the tool's published inputSchema before the handler
+  // sees them. Keeps malformed input from reaching Graph API calls where the
+  // failure would be slower and less actionable.
+  const validate = VALIDATORS.get(name);
+  if (validate && !validate(args)) {
+    const details = formatAjvErrors(validate.errors);
+    console.error(`[VALIDATE] ${name} rejected: ${details}`);
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Invalid arguments for ${name}: ${details}`
+    );
+  }
+
   return await tool.handler(args);
 });
 
@@ -107,28 +128,38 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start the server
 if (config.TRANSPORT_TYPE === 'http') {
-  const { SSEServerTransport } = require("@modelcontextprotocol/sdk/server/sse.js");
+  // Streamable HTTP is the current MCP spec transport (SSE is deprecated as of
+  // the 2025-03-26 spec revision). Stateless mode — one transport handles every
+  // request, matching the original single-client SSE semantics without session
+  // routing complexity.
+  const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
   const express = require('express');
   const app = express();
   app.use(express.json());
 
-  let sseTransport;
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  server.connect(transport)
+    .then(() => console.error(`${config.SERVER_NAME} connected (Streamable HTTP)`))
+    .catch(error => {
+      console.error(`Connection error: ${error.message}`);
+      process.exit(1);
+    });
 
-  app.get("/sse", async (req, res) => {
-    sseTransport = new SSEServerTransport("/message", res);
-    await server.connect(sseTransport);
-  });
-
-  app.post("/message", async (req, res) => {
-    if (sseTransport) {
-      await sseTransport.handlePostMessage(req, res);
-    } else {
-      res.status(503).json({ error: "No SSE connection" });
+  // Single endpoint handles POST (requests), GET (SSE stream for notifications),
+  // and DELETE (session teardown) per the Streamable HTTP spec.
+  app.all('/mcp', async (req, res) => {
+    try {
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      console.error(`[HTTP] handleRequest error: ${error.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error' });
+      }
     }
   });
 
   app.listen(config.HTTP_PORT, config.HTTP_HOST, () => {
-    console.error(`${config.SERVER_NAME} HTTP/SSE on ${config.HTTP_HOST}:${config.HTTP_PORT}`);
+    console.error(`${config.SERVER_NAME} HTTP (Streamable) on ${config.HTTP_HOST}:${config.HTTP_PORT}/mcp`);
   });
 } else {
   const transport = new StdioServerTransport();
