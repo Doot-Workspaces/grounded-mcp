@@ -62,7 +62,7 @@ module.exports = {
   EMAIL_DETAIL_FIELDS: 'id,subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,bodyPreview,body,hasAttachments,importance,isRead,internetMessageHeaders',
   
   // Calendar constants
-  CALENDAR_SELECT_FIELDS: 'id,subject,bodyPreview,start,end,location,organizer,attendees,isAllDay,isCancelled',
+  CALENDAR_SELECT_FIELDS: 'id,subject,bodyPreview,start,end,location,organizer,attendees,isAllDay,isCancelled,isOnlineMeeting,onlineMeeting',
   
   // Teams constants
   TEAMS_SELECT_FIELDS: 'id,displayName,description,isArchived,visibility',
@@ -92,6 +92,7 @@ module.exports = {
     'America/Denver': 'Mountain Standard Time',
     'America/Los_Angeles': 'Pacific Standard Time',
     'America/Phoenix': 'US Mountain Standard Time',
+    'Asia/Kolkata': 'India Standard Time',
     'UTC': 'UTC',
   },
 
@@ -120,6 +121,7 @@ module.exports = {
       'Mountain Standard Time': 'MT',
       'Pacific Standard Time': 'PT',
       'US Mountain Standard Time': 'MT',
+      'India Standard Time': 'IST',
       'UTC': 'UTC',
     };
     const tzAbbrev = tzAbbrevMap[timeZoneName] || tzAbbrevMap[this.getMsTimezone()] || 'ET';
