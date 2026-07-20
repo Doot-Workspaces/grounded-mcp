@@ -188,4 +188,54 @@ describe('Directory Module', () => {
       expect(result.content[0].text).toContain('Missing required parameter: query');
     });
   });
+
+  describe('find_rooms operation (room discovery)', () => {
+    it('should list rooms via places/microsoft.graph.room with the documented $select', async () => {
+      const mockRooms = {
+        value: [
+          { displayName: 'LAMP', emailAddress: '4LAMPground@dhwaniris.com', building: 'HQ', capacity: 8 },
+          { displayName: 'MEAN', emailAddress: '2MEANground@dhwaniris.com', building: 'HQ', capacity: 6 }
+        ]
+      };
+
+      callGraphAPI.mockResolvedValue(mockRooms);
+
+      const result = await directoryHandler({ operation: 'find_rooms' });
+
+      expect(callGraphAPI).toHaveBeenCalledWith(
+        mockAccessToken,
+        'GET',
+        'places/microsoft.graph.room',
+        null,
+        expect.objectContaining({
+          $select: expect.stringContaining('displayName')
+        })
+      );
+      const queryParams = callGraphAPI.mock.calls[0][4];
+      expect(queryParams.$select).toContain('emailAddress');
+      expect(queryParams.$select).toContain('building');
+      expect(queryParams.$select).toContain('capacity');
+
+      expect(result.content[0].text).toContain('Found 2 rooms');
+      expect(result.content[0].text).toContain('LAMP');
+      expect(result.content[0].text).toContain('MEAN');
+    });
+
+    it('should handle no rooms found', async () => {
+      callGraphAPI.mockResolvedValue({ value: [] });
+
+      const result = await directoryHandler({ operation: 'find_rooms' });
+
+      expect(result.content[0].text).toContain('No rooms found');
+    });
+
+    it('should degrade gracefully with a clear message naming Place.Read.All when the tenant has not granted consent', async () => {
+      callGraphAPI.mockRejectedValue(new Error('403 Forbidden: Insufficient permissions'));
+
+      const result = await directoryHandler({ operation: 'find_rooms' });
+
+      expect(result.content[0].text).toContain('Place.Read.All');
+      expect(result.content[0].text).not.toMatch(/^Error in directory/);
+    });
+  });
 });

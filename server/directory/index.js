@@ -1,6 +1,6 @@
 /**
- * Directory module - User profiles, presence, org hierarchy
- * Graph API: /users, /presence, /photo, /manager, /directReports
+ * Directory module - User profiles, presence, org hierarchy, room discovery
+ * Graph API: /users, /presence, /photo, /manager, /directReports, /places
  */
 const { ensureAuthenticated } = require('../auth');
 const { callGraphAPI } = require('../utils/graph-api');
@@ -13,7 +13,7 @@ async function handleDirectory(args) {
     return {
       content: [{
         type: "text",
-        text: "Missing required parameter: operation. Valid operations: lookup_user, get_profile, get_manager, get_reports, get_presence, search_users"
+        text: "Missing required parameter: operation. Valid operations: lookup_user, get_profile, get_manager, get_reports, get_presence, search_users, find_rooms"
       }]
     };
   }
@@ -174,11 +174,45 @@ async function handleDirectory(args) {
         return { content: [{ type: "text", text: `Found ${response.value.length} users:\n\n${userList}` }] };
       }
 
+      case 'find_rooms': {
+        // Same pattern as search_users: GET on a Graph collection, project a
+        // narrow $select. Rooms live under /places/microsoft.graph.room and
+        // require the Place.Read.All application/delegated permission with
+        // admin consent — a tenant that hasn't granted it gets a 403 here.
+        try {
+          const queryParams = {
+            $select: 'displayName,emailAddress,building,capacity'
+          };
+
+          const response = await callGraphAPI(accessToken, 'GET', 'places/microsoft.graph.room', null, queryParams);
+
+          if (!response.value || response.value.length === 0) {
+            return { content: [{ type: "text", text: "No rooms found." }] };
+          }
+
+          const roomList = response.value.map(r =>
+            `- ${r.displayName || 'Unnamed room'} <${r.emailAddress || 'No email'}>\n  Building: ${r.building || 'N/A'} | Capacity: ${r.capacity ?? 'N/A'}`
+          ).join('\n');
+
+          return { content: [{ type: "text", text: `Found ${response.value.length} rooms:\n\n${roomList}` }] };
+        } catch (error) {
+          if (error.message.includes('403') || /forbidden/i.test(error.message)) {
+            return {
+              content: [{
+                type: "text",
+                text: "Unable to list rooms: missing the Place.Read.All Microsoft Graph permission. This scope requires tenant admin consent — ask the Microsoft 365 admin to grant Place.Read.All (application or delegated) to this app registration, then retry."
+              }]
+            };
+          }
+          throw error;
+        }
+      }
+
       default:
         return {
           content: [{
             type: "text",
-            text: `Invalid operation: ${operation}. Valid: lookup_user, get_profile, get_manager, get_reports, get_presence, search_users`
+            text: `Invalid operation: ${operation}. Valid: lookup_user, get_profile, get_manager, get_reports, get_presence, search_users, find_rooms`
           }]
         };
     }
@@ -191,13 +225,13 @@ async function handleDirectory(args) {
 const directoryTools = [
   {
     name: 'directory',
-    description: 'User directory: profiles, managers, direct reports, presence, and user search',
+    description: 'User directory: profiles, managers, direct reports, presence, user search, and room discovery',
     inputSchema: {
       type: 'object',
       properties: {
         operation: {
           type: 'string',
-          enum: ['lookup_user', 'get_profile', 'get_manager', 'get_reports', 'get_presence', 'search_users'],
+          enum: ['lookup_user', 'get_profile', 'get_manager', 'get_reports', 'get_presence', 'search_users', 'find_rooms'],
           description: 'Operation to perform'
         },
         email: { type: 'string', description: 'User email address' },
