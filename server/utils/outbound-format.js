@@ -294,20 +294,25 @@ function formatHtmlOutbound(content, options = {}) {
  * Parse HTML or plain text into a flat array of block descriptors.
  * Block types: paragraph | bullet-list | divider
  * bullet-list blocks carry an `items` array of strings.
+ *
+ * @param {string} input
+ * @param {boolean} [stripTrailingSignOff=true] - Strip a trailing sign-off block
+ *   only when this render pass is about to re-append its own (strip-what-you-re-add).
+ *   When false, a caller-authored trailing sign-off paragraph is left untouched.
  */
-function parseToBlocks(input) {
+function parseToBlocks(input, stripTrailingSignOff = true) {
   const source = (input || '').trim();
   if (!source) return [];
 
   // If it looks like HTML, extract structure from tags
   if (RICH_HTML_PATTERN.test(source)) {
-    return parseHtmlToBlocks(source);
+    return parseHtmlToBlocks(source, stripTrailingSignOff);
   }
 
-  return parsePlainTextToBlocks(source);
+  return parsePlainTextToBlocks(source, stripTrailingSignOff);
 }
 
-function parseHtmlToBlocks(html) {
+function parseHtmlToBlocks(html, stripTrailingSignOff = true) {
   const blocks = [];
   // Normalize self-closing br
   let remaining = html.replace(/<br\s*\/?>/gi, '\n');
@@ -386,8 +391,12 @@ function parseHtmlToBlocks(html) {
         }
       } else {
         if (tagName === 'li') {
-          const plain = normalizeLine(decodeHtmlEntities(listItemText.replace(/<[^>]+>/g, ' ')));
-          if (plain) listItems.push(plain);
+          // Preserve inline HTML (e.g. <at id="0">Name</at> mentions, <strong>,
+          // <em>) alongside the plain-text form, mirroring paragraph rawHtml —
+          // otherwise mentions inside bullet items lose their tag on round-trip.
+          const rawItem = listItemText.trim();
+          const plain = normalizeLine(decodeHtmlEntities(rawItem.replace(/<[^>]+>/g, ' ')));
+          if (plain) listItems.push({ content: plain, rawHtml: stripBlockTags(rawItem).trim() });
           inListItem = false;
           listItemText = '';
         } else if (tagName === 'ul' || tagName === 'ol') {
@@ -409,27 +418,32 @@ function parseHtmlToBlocks(html) {
   flushPara();
   if (listItems.length > 0) flushList();
 
-  // Remove sign-off blocks
-  while (blocks.length > 0) {
-    const last = blocks[blocks.length - 1];
-    if (last.type === 'paragraph' && SIGN_OFF_VARIANTS.test(last.content)) {
-      blocks.pop();
-    } else {
-      break;
+  // Remove a trailing sign-off block only when this render pass is about to
+  // re-append its own (strip-what-you-re-add). If this pass isn't adding a
+  // sign-off, a caller-authored trailing sign-off paragraph must survive
+  // untouched — silently dropping it left messages unsigned.
+  if (stripTrailingSignOff) {
+    while (blocks.length > 0) {
+      const last = blocks[blocks.length - 1];
+      if (last.type === 'paragraph' && SIGN_OFF_VARIANTS.test(last.content)) {
+        blocks.pop();
+      } else {
+        break;
+      }
     }
   }
 
   return blocks;
 }
 
-function parsePlainTextToBlocks(text) {
+function parsePlainTextToBlocks(text, stripTrailingSignOff = true) {
   // Use existing line-parsing logic to get structured lines, then group into blocks
   const sanitizedText = text
     .replace(/\s+(?:[-–—]\s*)?(?:Office\s+MCP|Prody-dris-agent|-agent)\s*$/i, '')
     .replace(/\bThanks,\s*(?:Prody-dris-agent|-agent)\s*$/i, 'Thanks,');
 
   const lines = splitIntoBodyLines(sanitizedText);
-  const cleanedLines = stripExistingSignOff(lines);
+  const cleanedLines = stripTrailingSignOff ? stripExistingSignOff(lines) : lines;
 
   const blocks = [];
   let i = 0;
@@ -460,6 +474,19 @@ function parsePlainTextToBlocks(text) {
 }
 
 /**
+ * Render a single bullet-list item to inner <li> HTML.
+ * Items from parseHtmlToBlocks are { content, rawHtml } objects (preserves
+ * inline tags like <at> mentions, <strong>, <em>); items from
+ * parsePlainTextToBlocks are plain strings — escape those as before.
+ */
+function renderListItem(item) {
+  if (typeof item === 'string') {
+    return escapeHtml(item);
+  }
+  return item.rawHtml || escapeHtml(item.content);
+}
+
+/**
  * Serialize AST blocks to Teams HTML.
  * Paragraphs -> <div>, bullets -> <ul><li>, sign-off -> <div>.
  * Keep spacing lean; rely on block elements instead of explicit spacer nodes.
@@ -475,7 +502,7 @@ function serializeTeams(blocks, signOff) {
       const inner = (block.rawHtml || escapeHtml(block.content)).replace(/\n/g, '<br>');
       parts.push(`<div>${inner}</div>`);
     } else if (block.type === 'bullet-list') {
-      parts.push(`<ul>${block.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+      parts.push(`<ul>${block.items.map(item => `<li>${renderListItem(item)}</li>`).join('')}</ul>`);
     }
   }
 
@@ -507,7 +534,7 @@ function serializeEmail(blocks, signOff) {
         parts.push(`<p>${inner}</p>`);
       }
     } else if (block.type === 'bullet-list') {
-      parts.push(`<ul>${block.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+      parts.push(`<ul>${block.items.map(item => `<li>${renderListItem(item)}</li>`).join('')}</ul>`);
     }
   }
 
@@ -580,8 +607,10 @@ function renderOutbound({ content, target, signOff, mentions }) {
 
   const resolvedSignOff = signOff !== undefined ? signOff : DEFAULT_SIGN_OFF;
 
-  // Step 1: parse into AST
-  const blocks = parseToBlocks(content);
+  // Step 1: parse into AST. Only strip a trailing sign-off block when this
+  // pass is about to re-append its own (strip-what-you-re-add) — otherwise a
+  // caller-authored trailing sign-off paragraph must pass through untouched.
+  const blocks = parseToBlocks(content, Boolean(resolvedSignOff));
 
   // Step 2: target-specific serialize + sign-off
   let html;

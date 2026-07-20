@@ -154,6 +154,17 @@ describe('renderOutbound — Teams target', () => {
     // Wrong spacer: <div>&nbsp;</div> — never use this
     expect(html).not.toContain('<div>&nbsp;</div>');
   });
+
+  it('preserves an <at> mention tag inside a bullet list item (round-trip)', () => {
+    const { html } = renderOutbound({
+      content: '<ul><li>ping <at id="0">Name</at></li></ul>',
+      target: 'teams',
+      signOff: ''
+    });
+
+    expect(html).toContain('<at id="0">Name</at>');
+    expect(html).not.toContain('&lt;at');
+  });
 });
 
 describe('renderOutbound — Email target', () => {
@@ -196,6 +207,43 @@ describe('renderOutbound — Email target', () => {
     expect(html).toContain('<p>Line one</p>');
     expect(html).toContain('<p>Line two</p>');
     expect(html).not.toMatch(/<div>Line/);
+  });
+});
+
+describe('renderOutbound — trailing sign-off strip-what-you-re-add contract', () => {
+  it('leaves an explicitly authored final-paragraph sign-off untouched when embedded inline', () => {
+    // Caller already embedded '— Prody' inline in the last paragraph (the
+    // agent-side mail_message_guard.py contract). This pass adds no sign-off
+    // of its own, so nothing should be stripped or duplicated.
+    const { html } = renderOutbound({
+      content: '<p>Thanks for confirming — Prody</p>',
+      target: 'email',
+      signOff: ''
+    });
+
+    expect(html).toContain('<p>Thanks for confirming — Prody</p>');
+    expect((html.match(/Prody/g) || []).length).toBe(1);
+  });
+
+  it('preserves a caller-authored standalone trailing sign-off paragraph when this pass is not re-appending one', () => {
+    const { html } = renderOutbound({
+      content: '<p>Body text.</p><p>Prody</p>',
+      target: 'teams',
+      signOff: ''
+    });
+
+    expect(html).toContain('<div>Body text.</div>');
+    expect(html).toContain('<div>Prody</div>');
+  });
+
+  it('still strips-then-readds exactly once when this pass IS appending its own sign-off', () => {
+    const { html } = renderOutbound({
+      content: '<p>Body text.</p><p>Prody</p>',
+      target: 'teams',
+      signOff: 'Prody'
+    });
+
+    expect((html.match(/Prody/g) || []).length).toBe(1);
   });
 });
 
