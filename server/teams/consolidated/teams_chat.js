@@ -384,36 +384,42 @@ async function listChatMessages(accessToken, params) {
  * Get a specific chat message
  */
 async function getChatMessage(accessToken, params) {
-  const { chatId, messageId } = params;
-  
+  const { chatId, messageId, raw } = params;
+
   if (!chatId || !messageId) {
     return {
-      content: [{ 
-        type: "text", 
-        text: "Missing required parameters. Please provide chatId and messageId." 
+      content: [{
+        type: "text",
+        text: "Missing required parameters. Please provide chatId and messageId."
       }]
     };
   }
-  
+
   const message = await callGraphAPI(
     accessToken,
     'GET',
     `chats/${chatId}/messages/${messageId}`
   );
-  
+
   const sender = message.from?.user?.displayName || message.from?.user?.id || message.from?.application?.displayName || 'Unknown';
   const createdTime = formatDate(message.createdDateTime);
-  
+
   let content = 'No content';
   if (message.body?.content) {
-    // Attempt to remove HTML from the content
-    content = message.body.content
-      .replace(/<[^>]*>/g, ' ') // Replace HTML tags with space
-      .replace(/&nbsp;/g, ' ')  // Replace &nbsp; with space
-      .replace(/\s+/g, ' ')     // Collapse multiple spaces
-      .trim();
+    if (raw) {
+      // Return the message body verbatim — needed to verify round-trip
+      // fidelity (mentions, sign-off) instead of the tag-stripped preview.
+      content = message.body.content;
+    } else {
+      // Attempt to remove HTML from the content
+      content = message.body.content
+        .replace(/<[^>]*>/g, ' ') // Replace HTML tags with space
+        .replace(/&nbsp;/g, ' ')  // Replace &nbsp; with space
+        .replace(/\s+/g, ' ')     // Collapse multiple spaces
+        .trim();
+    }
   }
-  
+
   // Check for attachments
   let attachments = 'No attachments';
   if (message.attachments && message.attachments.length > 0) {
@@ -421,15 +427,16 @@ async function getChatMessage(accessToken, params) {
       return `   ${index + 1}. ${attachment.name || 'Unnamed'} (${attachment.contentType || 'Unknown type'})`;
     }).join('\n');
   }
-  
+
   // Check if this is a reply to another message
   let replyInfo = '';
   if (message.replyToId) {
     replyInfo = `\nReply to message: ${message.replyToId}\n`;
   }
-  
-  const messageDetails = `From: ${sender}\nTime: ${createdTime}\nID: ${message.id}${replyInfo}\n\nContent:\n${content}\n\nAttachments:\n${attachments}`;
-  
+
+  const contentTypeInfo = raw ? `\nContent-Type: ${message.body?.contentType || 'Unknown'}` : '';
+  const messageDetails = `From: ${sender}\nTime: ${createdTime}\nID: ${message.id}${replyInfo}${contentTypeInfo}\n\nContent:\n${content}\n\nAttachments:\n${attachments}`;
+
   return {
     content: [{ type: "text", text: messageDetails }]
   };
