@@ -173,5 +173,101 @@ describe('Calendar Module - renderOutbound body wrapping', () => {
       const callArg = callGraphAPI.mock.calls[0][3];
       expect(callArg).not.toHaveProperty('body');
     });
+
+    it('pairs isOnlineMeeting: true with onlineMeetingProvider (mirrors create)', async () => {
+      callGraphAPI.mockResolvedValue({});
+
+      await calendarTool.handler({
+        operation: 'update',
+        eventId: 'evt-teams-1',
+        isOnlineMeeting: true
+      });
+
+      expect(callGraphAPI).toHaveBeenCalledWith(
+        mockAccessToken,
+        'PATCH',
+        'me/events/evt-teams-1',
+        expect.objectContaining({
+          isOnlineMeeting: true,
+          onlineMeetingProvider: 'teamsForBusiness'
+        })
+      );
+    });
+
+    it('does not send a bare isOnlineMeeting: true without a matching onlineMeetingProvider', async () => {
+      callGraphAPI.mockResolvedValue({});
+
+      await calendarTool.handler({
+        operation: 'update',
+        eventId: 'evt-teams-2',
+        isOnlineMeeting: true
+      });
+
+      const callArg = callGraphAPI.mock.calls[0][3];
+      expect(callArg.isOnlineMeeting).toBe(true);
+      expect(callArg.onlineMeetingProvider).toBeTruthy();
+    });
+  });
+});
+
+describe('Calendar Module - getCalendarEvent online meeting visibility', () => {
+  const mockAccessToken = 'mock-access-token';
+  let calendarTool;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    ensureAuthenticated.mockResolvedValue(mockAccessToken);
+    calendarTool = calendarTools.find(tool => tool.name === 'calendar');
+  });
+
+  it('renders "Online Meeting: Yes" and the Join URL when isOnlineMeeting is true', async () => {
+    callGraphAPI.mockResolvedValue({
+      id: 'evt-1',
+      subject: 'Standup',
+      start: { dateTime: '2026-04-14T10:00:00.0000000', timeZone: 'Eastern Standard Time' },
+      end: { dateTime: '2026-04-14T10:30:00.0000000', timeZone: 'Eastern Standard Time' },
+      location: { displayName: 'N/A' },
+      isOnlineMeeting: true,
+      onlineMeeting: { joinUrl: 'https://teams.microsoft.com/l/meetup-join/abc123' }
+    });
+
+    const result = await calendarTool.handler({ operation: 'get', eventId: 'evt-1' });
+    const text = result.content[0].text;
+
+    expect(text).toContain('Online Meeting: Yes');
+    expect(text).toContain('Join URL: https://teams.microsoft.com/l/meetup-join/abc123');
+  });
+
+  it('renders "Online Meeting: No" and no Join URL line when isOnlineMeeting is false', async () => {
+    callGraphAPI.mockResolvedValue({
+      id: 'evt-2',
+      subject: 'In-person sync',
+      start: { dateTime: '2026-04-14T10:00:00.0000000', timeZone: 'Eastern Standard Time' },
+      end: { dateTime: '2026-04-14T10:30:00.0000000', timeZone: 'Eastern Standard Time' },
+      location: { displayName: 'Conference Room' },
+      isOnlineMeeting: false
+    });
+
+    const result = await calendarTool.handler({ operation: 'get', eventId: 'evt-2' });
+    const text = result.content[0].text;
+
+    expect(text).toContain('Online Meeting: No');
+    expect(text).not.toContain('Join URL:');
+  });
+
+  it('requests isOnlineMeeting and onlineMeeting fields via CALENDAR_SELECT_FIELDS', async () => {
+    callGraphAPI.mockResolvedValue({
+      id: 'evt-3',
+      subject: 'Check select fields',
+      start: { dateTime: '2026-04-14T10:00:00.0000000', timeZone: 'Eastern Standard Time' },
+      end: { dateTime: '2026-04-14T10:30:00.0000000', timeZone: 'Eastern Standard Time' },
+      location: {}
+    });
+
+    await calendarTool.handler({ operation: 'get', eventId: 'evt-3' });
+
+    const queryParams = callGraphAPI.mock.calls[0][4];
+    expect(queryParams.$select).toContain('isOnlineMeeting');
+    expect(queryParams.$select).toContain('onlineMeeting');
   });
 });

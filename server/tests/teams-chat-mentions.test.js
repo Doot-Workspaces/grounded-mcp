@@ -139,3 +139,51 @@ describe('updateChatMessage — mentions plumbing (bug fix)', () => {
     expect(bodyContent).toContain('<div>');
   });
 });
+
+describe('getChatMessage — raw param (bug fix)', () => {
+  it('returns tag-stripped plain text by default (raw not passed)', async () => {
+    callGraphAPI.mockImplementation(async (token, method, endpoint) => {
+      mockCapturedRequests.push({ method, endpoint });
+      return {
+        id: 'msg-789',
+        from: { user: { displayName: 'Nihaan Mohammed' } },
+        createdDateTime: '2026-07-20T10:00:00Z',
+        body: { contentType: 'html', content: '<div>ping <at id="0">Name</at></div>' }
+      };
+    });
+
+    const result = await handleTeamsChat({
+      operation: 'get_message',
+      chatId: 'chat-abc',
+      messageId: 'msg-789'
+    });
+
+    const text = result.content[0].text;
+    expect(text).not.toContain('<at');
+    expect(text).not.toContain('<div>');
+    expect(text).toContain('ping');
+  });
+
+  it('returns message.body.content verbatim plus contentType when raw: true', async () => {
+    callGraphAPI.mockImplementation(async (token, method, endpoint) => {
+      mockCapturedRequests.push({ method, endpoint });
+      return {
+        id: 'msg-790',
+        from: { user: { displayName: 'Nihaan Mohammed' } },
+        createdDateTime: '2026-07-20T10:00:00Z',
+        body: { contentType: 'html', content: '<div>ping <at id="0">Name</at></div>' }
+      };
+    });
+
+    const result = await handleTeamsChat({
+      operation: 'get_message',
+      chatId: 'chat-abc',
+      messageId: 'msg-790',
+      raw: true
+    });
+
+    const text = result.content[0].text;
+    expect(text).toContain('<div>ping <at id="0">Name</at></div>');
+    expect(text).toContain('Content-Type: html');
+  });
+});

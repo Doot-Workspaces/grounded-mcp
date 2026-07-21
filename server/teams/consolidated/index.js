@@ -82,6 +82,10 @@ const chatToolSchema = {
       type: 'string',
       description: 'Message ID (for get_message, update_message, delete_message)'
     },
+    raw: {
+      type: 'boolean',
+      description: 'For get_message: return message.body.content verbatim (plus its contentType) instead of the tag-stripped plain-text preview. Default false (unchanged tag-stripped behavior). Use this to verify round-trip fidelity of mentions and sign-off formatting.'
+    },
     replyToId: {
       type: 'string',
       description: 'Message ID to reply to (for send_message)'

@@ -430,7 +430,10 @@ async function getCalendarEvent(accessToken, params) {
   eventDetails += `End: ${endTime}\n`;
   eventDetails += `Location: ${response.location?.displayName || 'N/A'}\n`;
   eventDetails += `Online Meeting: ${response.isOnlineMeeting ? 'Yes' : 'No'}\n`;
-  
+  if (response.isOnlineMeeting && response.onlineMeeting?.joinUrl) {
+    eventDetails += `Join URL: ${response.onlineMeeting.joinUrl}\n`;
+  }
+
   if (response.attendees && response.attendees.length > 0) {
     eventDetails += `Attendees: ${response.attendees.map(a => a.emailAddress.address).join(', ')}\n`;
   }
@@ -456,9 +459,9 @@ async function updateCalendarEvent(accessToken, params) {
     };
   }
   
-  const allowedFields = ['subject', 'location', 'body', 'start', 'end', 'isOnlineMeeting'];
+  const allowedFields = ['subject', 'location', 'body', 'start', 'end', 'isOnlineMeeting', 'onlineMeetingProvider'];
   const update = {};
-  
+
   // Build update object with allowed fields
   for (const [key, value] of Object.entries(updateFields)) {
     if (allowedFields.includes(key)) {
@@ -472,6 +475,24 @@ async function updateCalendarEvent(accessToken, params) {
       } else {
         update[key] = value;
       }
+    }
+  }
+
+  // Mirror createCalendarEvent's pairing: isOnlineMeeting must travel with
+  // onlineMeetingProvider or Graph silently ignores it and the meeting has
+  // no Teams link (the root cause of "update drops Teams linkage").
+  if ('isOnlineMeeting' in update) {
+    if (update.isOnlineMeeting) {
+      update.onlineMeetingProvider = 'teamsForBusiness';
+    } else if (!('onlineMeetingProvider' in updateFields)) {
+      // Turning the meeting off: Graph does not accept null/'unknown' as a
+      // reliable "unset provider" value here — the documented, verified-safe
+      // approach is to omit onlineMeetingProvider from the PATCH entirely and
+      // rely on isOnlineMeeting: false alone to drop the online-meeting flag.
+      // (Graph API behavior: patching onlineMeetingProvider to null on an
+      // event that already has a provider set returns a 400; the safe path
+      // is "don't touch the field" rather than guessing an accepted sentinel.)
+      delete update.onlineMeetingProvider;
     }
   }
   
