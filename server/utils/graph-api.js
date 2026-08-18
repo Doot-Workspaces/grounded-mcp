@@ -23,6 +23,53 @@ const ERROR_SUGGESTIONS = {
   503: 'Service temporarily unavailable. The request will be retried automatically.'
 };
 
+// Azure AD error codes where the grant is permanently revoked and auto-refresh can never recover
+const REVOKED_GRANT_CODES = ['AADSTS50173', 'AADSTS700082'];
+
+// Concrete remediation for this repo when interactive re-authentication is required
+const REAUTH_REMEDIATION = 'Run: node office-auth-server.js  then open http://localhost:3000/auth';
+
+/**
+ * Build a 401 suggestion string from the Graph error body.
+ * Extracts the AADSTS code and Microsoft's description so a revoked grant is
+ * distinguishable from a merely expired token. Never throws, never surfaces
+ * token material - only the AADSTS code and human-readable description.
+ * @param {string|Buffer} responseData - Raw Graph error body
+ * @returns {string} - Suggestion text to append after the UNAUTHORIZED: prefix
+ */
+function describe401(responseData) {
+  let raw = '';
+  try {
+    raw = Buffer.isBuffer(responseData) ? responseData.toString('utf8') : (responseData || '').toString();
+  } catch (error) {
+    raw = '';
+  }
+
+  let msMessage = '';
+  try {
+    const parsed = JSON.parse(raw);
+    msMessage = (parsed && parsed.error && typeof parsed.error.message === 'string') ? parsed.error.message : '';
+  } catch (error) {
+    msMessage = '';
+  }
+
+  const codeMatch = /AADSTS\d+/.exec(msMessage) || /AADSTS\d+/.exec(raw);
+  if (!codeMatch) {
+    return ERROR_SUGGESTIONS[401];
+  }
+
+  const aadstsCode = codeMatch[0];
+  const description = (msMessage || raw).slice(0, 300);
+  const isRevoked = REVOKED_GRANT_CODES.includes(aadstsCode) || raw.includes('invalid_grant');
+
+  if (isRevoked) {
+    return `${aadstsCode}: the grant has been revoked. Automatic token refresh CANNOT recover from this - interactive re-authentication is required. ${REAUTH_REMEDIATION}\nMicrosoft: ${description}`;
+  }
+
+  const detail = description.startsWith(aadstsCode) ? description : `${aadstsCode}: ${description}`;
+  return `${detail}\nSuggestion: ${ERROR_SUGGESTIONS[401]}`;
+}
+
 /**
  * Sleep for specified milliseconds
  * @param {number} ms - Milliseconds to sleep
@@ -208,8 +255,8 @@ async function callGraphAPI(accessToken, method, path, data = null, queryParams 
               }
             }
           } else if (res.statusCode === 401) {
-            // Token expired or invalid
-            const suggestion = ERROR_SUGGESTIONS[401];
+            // Token expired, or the grant was revoked (AADSTS50173 / AADSTS700082)
+            const suggestion = describe401(responseData);
             reject(new Error(`UNAUTHORIZED: ${suggestion}`));
           } else {
             // Handle other errors with retry logic
