@@ -1,8 +1,40 @@
 # grounded-mcp — HEARTBEAT (session handoff)
 
-**Last updated:** 2026-07-20
-**Last operator:** CC (Sonnet 5, dispatched sub-agent)
-**Next session:** PR #9 open against `main`, unreviewed. Do not merge without the maintainer running the two live-verification steps in the PR body.
+**Last updated:** 2026-08-18
+**Last operator:** CC (Opus 5, dispatched Sonnet sub-agent for the code change)
+**Next session:** PR #10 merged to `main` (squash, `0759a5a`), local in sync. Nihaan restarts Claude Code tonight so the running MCP process picks up the new code. Two pre-existing test failures remain untouched — see Pending.
+
+---
+
+## Session 2026-08-18 — 401 error surfacing: AADSTS codes now reach the caller
+
+### Done
+- **Root-caused an "UNAUTHORIZED" outage.** M365 password reset on `product@dhwaniris.com` at 19:22 IST set Azure AD `TokensValidFrom`, revoking every refresh token issued before it (the live grant dated 2026-03-23). Microsoft returned `AADSTS50173`; the MCP surfaced only the static string `Authentication token may have expired`. The confirming reset email was in the mailbox the whole time.
+- **Fix (PR #10, squashed to `0759a5a`):** `describe401()` added to `server/utils/graph-api.js` — parses the Graph 401 body, extracts the AADSTS code, and names the revoked case explicitly with the remediation command inline. The 401 branch previously discarded `responseData` wholesale, throwing away the code Microsoft had already supplied.
+- `server/auth/auto-refresh.js` classifies `invalid_grant` / `AADSTS50173` / `AADSTS700082` as `REAUTH_REQUIRED:` so callers can branch programmatically rather than string-matching prose. Failure log no longer dumps the whole error object.
+- `.nvmrc` added pinning `v24.14.0`, matching the `PATH` the MCP launch config injects. Shell default was nvm alias `22`, so manual runs and MCP runs used different runtimes. Note `package.json` declares `engines: ">=20.0.0"` — both are supported, so this was consistency, not a correctness bug.
+- **Verified independently of the sub-agent's report:** loaded `describe401` off disk and ran the real revoked body, a generic 401, malformed input, empty string, `null`, `undefined`, and a `Buffer`. Never throws; generic 401 keeps the original wording (no regression). Added a leak test the sub-agent had not run — planted `access_token`/`refresh_token` values in an error body and confirmed neither appears in output. Server boots (`office-mcp connected and listening`); live `check_status` green after the change.
+- Re-auth performed via `office-auth-server.js` + `http://localhost:3000/auth`. Token identity confirmed as `product@dhwaniris.com` by Graph `/me` (AAD `8a64e35d-3dfa-45e5-95f0-2ae49470636f`), not inferred from the file — an earlier browser attempt had signed in as Nihaan, and the token file carries no `email` field to distinguish them.
+- Security sweep: token + both `.env` files at `600`, `.env` git-ignored and never tracked, no token copies or backups, no shell-history leakage, no secrets in MCP config. Removed `~/.ms-365-mcp-server` (stray logs from a wrong-package detour, no credential material) and purged the scratchpad auth log.
+
+### Pending
+- Two pre-existing test failures, deliberately untouched and out of scope: `integration.test.js` asserts an `OnlineMeetings.ReadWrite` scope absent from `config.js`; `drive.test.js` has a mock-shape bug (`Cannot read properties of undefined (reading '0')`). Proven pre-existing by running the suite against pristine `HEAD` in a detached worktree — identical `2 failed, 165 passed`.
+- A stale prunable worktree shows in `git worktree list`.
+
+### Blocked
+- Nothing.
+
+### Next
+- Restart Claude Code so the MCP process loads the merged code (Nihaan, tonight).
+- If Prody is authenticated on any other machine or cron job, those refresh tokens died in the same reset and need the same browser re-auth.
+
+### Decisions
+- **Branch + PR rather than a direct push to `main`**, despite "it's just us" — the repo is PUBLIC (`Doot-Workspaces/grounded-mcp`), so a push is a publish. Diff scanned for secrets, tenant IDs, GUIDs and company identifiers before pushing: clean.
+- **Revoked-code list duplicated across the two files** rather than extracted to a shared util — keeps `describe401` self-contained and avoids touching a third file for a two-constant helper.
+- Truncation caps Microsoft's text at 300 chars but leaves the remediation line outside the cap, so the actionable instruction can never be cut off.
+
+---
+
 
 ---
 
