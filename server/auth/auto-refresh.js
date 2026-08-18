@@ -6,6 +6,12 @@ const https = require('https');
 const fs = require('fs');
 const config = require('../config');
 
+// Azure AD error codes where the refresh token is permanently revoked
+const REVOKED_GRANT_CODES = ['AADSTS50173', 'AADSTS700082'];
+
+// Concrete remediation for this repo when interactive re-authentication is required
+const REAUTH_REMEDIATION = 'Run: node office-auth-server.js  then open http://localhost:3000/auth';
+
 /**
  * Refreshes the access token using the stored refresh token
  * @returns {Promise<object>} - New token data including access_token and refresh_token
@@ -95,8 +101,20 @@ async function refreshAccessToken() {
               resolve(newTokens);
             } else {
               const error = JSON.parse(data);
-              console.error('[AUTO-REFRESH] Token refresh failed:', error);
-              reject(new Error(`Token refresh failed: ${error.error_description || error.error}`));
+              const description = error.error_description || '';
+              const aadstsCode = (/AADSTS\d+/.exec(description) || [])[0] || '';
+
+              // Log only the OAuth error, the AADSTS code and a truncated description
+              console.error(`[AUTO-REFRESH] Token refresh failed: ${error.error || 'unknown_error'}${aadstsCode ? ` (${aadstsCode})` : ''} - ${description.slice(0, 300)}`);
+
+              const isRevoked = error.error === 'invalid_grant' ||
+                                REVOKED_GRANT_CODES.some(code => description.includes(code));
+
+              if (isRevoked) {
+                reject(new Error(`REAUTH_REQUIRED: The refresh token has been permanently revoked${aadstsCode ? ` (${aadstsCode})` : ''}. Automatic refresh cannot recover from this - interactive re-authentication is required. ${REAUTH_REMEDIATION}`));
+              } else {
+                reject(new Error(`Token refresh failed: ${error.error_description || error.error}`));
+              }
             }
           } catch (parseError) {
             console.error('[AUTO-REFRESH] Error parsing response:', parseError);
