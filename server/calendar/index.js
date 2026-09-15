@@ -462,6 +462,67 @@ async function updateCalendarEvent(accessToken, params) {
   const allowedFields = ['subject', 'location', 'body', 'start', 'end', 'isOnlineMeeting', 'onlineMeetingProvider'];
   const update = {};
 
+  // Attendee changes travel a read-merge-patch path, not a blind PATCH. Graph
+  // REPLACES the attendees collection on PATCH rather than appending to it, so
+  // sending only the new people silently uninvites everyone already on the
+  // event. Read the current roster first, merge, then send the union.
+  // (Root cause of "update silently drops attendees": attendees was simply
+  // absent from allowedFields, so the field was discarded before the PATCH.)
+  if (updateFields.attendees !== undefined) {
+    const { attendees, attendeeMode = 'add' } = updateFields;
+
+    if (!Array.isArray(attendees)) {
+      return {
+        content: [{
+          type: "text",
+          text: "Invalid parameter: attendees must be an array of email addresses or attendee objects"
+        }]
+      };
+    }
+
+    if (!['add', 'remove', 'replace'].includes(attendeeMode)) {
+      return {
+        content: [{
+          type: "text",
+          text: `Invalid attendeeMode: ${attendeeMode}. Valid modes are: add (default), remove, replace`
+        }]
+      };
+    }
+
+    const incoming = buildAttendees(attendees);
+
+    if (attendeeMode === 'replace') {
+      update.attendees = incoming;
+    } else {
+      // Read the live roster. $select keeps the payload small; attendees on a
+      // large recurring series is the only field we need here.
+      const current = await callGraphAPI(
+        accessToken,
+        'GET',
+        `me/events/${eventId}?$select=attendees`
+      );
+      const existing = Array.isArray(current.attendees) ? current.attendees : [];
+      const keyOf = a => a.emailAddress?.address?.toLowerCase();
+
+      if (attendeeMode === 'remove') {
+        const drop = new Set(incoming.map(keyOf).filter(Boolean));
+        update.attendees = existing.filter(a => !drop.has(keyOf(a)));
+      } else {
+        // Additive merge. Existing entries win on collision so an already
+        // invited person keeps their type and their RSVP status instead of
+        // being reset to a fresh Required/none invitation.
+        const seen = new Set(existing.map(keyOf).filter(Boolean));
+        const additions = incoming.filter(a => {
+          const key = keyOf(a);
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        update.attendees = [...existing, ...additions];
+      }
+    }
+  }
+
   // Build update object with allowed fields
   for (const [key, value] of Object.entries(updateFields)) {
     if (allowedFields.includes(key)) {
@@ -500,7 +561,7 @@ async function updateCalendarEvent(accessToken, params) {
     return {
       content: [{ 
         type: "text", 
-        text: "No valid fields to update. Valid fields: subject, location, body, start, end, isOnlineMeeting" 
+        text: "No valid fields to update. Valid fields: subject, location, body, start, end, isOnlineMeeting, attendees"
       }]
     };
   }
@@ -565,10 +626,15 @@ const calendarTools = [
         start: { type: "string", description: "Start date/time in ISO format (for create/update)" },
         end: { type: "string", description: "End date/time in ISO format (for create/update)" },
         location: { type: "string", description: "Event location (for create/update)" },
-        attendees: { 
-          type: "array", 
+        attendees: {
+          type: "array",
           items: { type: "string" },
-          description: "Attendee email addresses or objects (for create/find)" 
+          description: "Attendee email addresses or objects (for create/find/update). On update, adds to the existing roster without cancelling the event — see attendeeMode."
+        },
+        attendeeMode: {
+          type: "string",
+          enum: ["add", "remove", "replace"],
+          description: "How update applies attendees: 'add' (default) merges with the existing roster, keeping current attendees and their RSVP status; 'remove' drops the listed people; 'replace' overwrites the whole roster. Use 'add' to invite someone to a recurring series without delete+recreate."
         },
         meetingDurationMinutes: {
           type: "number",
