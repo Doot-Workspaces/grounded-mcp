@@ -36,7 +36,10 @@ module.exports = {
       'ChannelMessage.Read.All', 'ChannelMessage.Send',
       'Files.ReadWrite.All',
       'Sites.Read.All', 'Sites.ReadWrite.All',
-      'OnlineMeetings.Read',
+      // ReadWrite, not Read: teams_meeting.js POSTs, PATCHes and DELETEs
+      // against me/onlineMeetings (create, update, cancel). With Read alone
+      // those three fail with a 403 the moment anyone uses them.
+      'OnlineMeetings.ReadWrite',
       'OnlineMeetingRecording.Read.All',
       'OnlineMeetingTranscript.Read.All'
     ],
@@ -62,7 +65,12 @@ module.exports = {
   EMAIL_DETAIL_FIELDS: 'id,subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,bodyPreview,body,hasAttachments,importance,isRead,internetMessageHeaders',
   
   // Calendar constants
-  CALENDAR_SELECT_FIELDS: 'id,subject,bodyPreview,start,end,location,organizer,attendees,isAllDay,isCancelled,isOnlineMeeting,onlineMeeting',
+  // type and seriesMasterId are load-bearing: without them a recurring
+  // occurrence is indistinguishable from a standalone event, and an attendee
+  // edit silently lands on one date as a series exception instead of the whole
+  // series. (Observed 2026-09-15: mGrant Standup and Campfire each changed on
+  // a single day only.)
+  CALENDAR_SELECT_FIELDS: 'id,subject,bodyPreview,start,end,location,organizer,attendees,isAllDay,isCancelled,isOnlineMeeting,onlineMeeting,type,seriesMasterId',
   
   // Teams constants
   TEAMS_SELECT_FIELDS: 'id,displayName,description,isArchived,visibility',

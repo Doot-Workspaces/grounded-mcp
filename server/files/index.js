@@ -474,8 +474,16 @@ async function searchFiles(accessToken, params) {
     effectiveScope === 'me' ? { $top: maxResults } : {}
   );
 
-  const items = effectiveScope === 'me' ? response.value : response.value[0].hitsContainers[0].hits;
-  
+  // The /search/query shape nests hits three levels down, and every level is
+  // optional: a search with no matches can come back with an empty `value`, a
+  // `value[0]` carrying no hitsContainers, or a container with no hits. Reading
+  // straight through threw a TypeError that surfaced to the user as
+  // "Cannot read properties of undefined (reading '0')" instead of the
+  // no-results message below. Walk it defensively and let the empty check answer.
+  const items = effectiveScope === 'me'
+    ? response.value
+    : response.value?.[0]?.hitsContainers?.[0]?.hits;
+
   if (!items || items.length === 0) {
     return {
       content: [{ type: "text", text: "No files found matching your search." }]

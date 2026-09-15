@@ -57,10 +57,18 @@ describe('Files Module', () => {
 
   describe('search operation', () => {
     it('should search for files', async () => {
+      // Default scope is 'all', which goes to /search/query. That endpoint
+      // nests results under value[0].hitsContainers[0].hits, each hit wrapping
+      // the item in `resource`. The old mock used the flat {value: [...]} shape
+      // that only /me/drive/search returns, so this test could never pass.
       const mockResults = {
-        value: [
-          { id: 'file1', name: 'budget.xlsx', size: 2048, file: {} }
-        ]
+        value: [{
+          hitsContainers: [{
+            hits: [
+              { resource: { id: 'file1', name: 'budget.xlsx', size: 2048, file: {} } }
+            ]
+          }]
+        }]
       };
 
       callGraphAPI.mockResolvedValue(mockResults);
@@ -71,6 +79,35 @@ describe('Files Module', () => {
       });
 
       expect(result.content[0].text).toContain('budget.xlsx');
+    });
+
+    it('should search the personal drive with scope me', async () => {
+      // The other shape: /me/drive/search returns items flat under `value`.
+      callGraphAPI.mockResolvedValue({
+        value: [{ id: 'file1', name: 'budget.xlsx', size: 2048, file: {} }]
+      });
+
+      const result = await filesHandler({
+        operation: 'search',
+        query: 'budget',
+        scope: 'me'
+      });
+
+      expect(result.content[0].text).toContain('budget.xlsx');
+    });
+
+    it('reports no results instead of throwing when the search comes back empty', async () => {
+      // Regression guard: reading value[0].hitsContainers[0].hits straight
+      // through threw a TypeError that reached the user as
+      // "Cannot read properties of undefined (reading '0')".
+      callGraphAPI.mockResolvedValue({ value: [] });
+
+      const result = await filesHandler({
+        operation: 'search',
+        query: 'nothing-matches-this'
+      });
+
+      expect(result.content[0].text).toContain('No files found');
     });
   });
 

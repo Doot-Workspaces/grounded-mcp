@@ -434,10 +434,20 @@ async function getCalendarEvent(accessToken, params) {
     eventDetails += `Join URL: ${response.onlineMeeting.joinUrl}\n`;
   }
 
+  // Surface recurrence shape. An occurrence looks identical to a standalone
+  // event once formatted, which is how an attendee edit can land on a single
+  // date instead of the series without anyone noticing.
+  if (response.type && response.type !== 'singleInstance') {
+    eventDetails += `Recurrence: ${response.type}\n`;
+    if (response.seriesMasterId) {
+      eventDetails += `Series master ID: ${response.seriesMasterId}\n`;
+    }
+  }
+
   if (response.attendees && response.attendees.length > 0) {
     eventDetails += `Attendees: ${response.attendees.map(a => a.emailAddress.address).join(', ')}\n`;
   }
-  
+
   if (response.body?.content) {
     eventDetails += `\nDescription:\n${response.body.content}`;
   }
@@ -461,6 +471,9 @@ async function updateCalendarEvent(accessToken, params) {
   
   const allowedFields = ['subject', 'location', 'body', 'start', 'end', 'isOnlineMeeting', 'onlineMeetingProvider'];
   const update = {};
+  // The event actually patched. Attendee edits retarget this to the series
+  // master; everything else stays on the id the caller passed.
+  let targetId = eventId;
 
   // Attendee changes travel a read-merge-patch path, not a blind PATCH. Graph
   // REPLACES the attendees collection on PATCH rather than appending to it, so
@@ -491,15 +504,49 @@ async function updateCalendarEvent(accessToken, params) {
 
     const incoming = buildAttendees(attendees);
 
+    // Attendee edits target the SERIES, not one date. Graph ids returned by
+    // list/find are occurrence ids; patching attendees on one detaches that
+    // date as a series exception and leaves every other occurrence unchanged,
+    // so the person appears invited to a single day. (Observed 2026-09-15:
+    // mGrant Standup and Campfire each changed on one date only.) Resolve the
+    // master first and edit that. Pass applyToOccurrence: true to deliberately
+    // change a single date.
+    if (!updateFields.applyToOccurrence) {
+      const probe = await callGraphAPI(
+        accessToken,
+        'GET',
+        `me/events/${eventId}`,
+        null,
+        { $select: 'type,seriesMasterId' }
+      );
+      if (probe.type === 'occurrence' || probe.type === 'exception') {
+        if (!probe.seriesMasterId) {
+          return {
+            content: [{
+              type: "text",
+              text: `This event is a recurring ${probe.type} but Graph returned no seriesMasterId, so the series cannot be resolved. Re-run with applyToOccurrence: true to change only this date.`
+            }]
+          };
+        }
+        targetId = probe.seriesMasterId;
+      }
+    }
+
     if (attendeeMode === 'replace') {
       update.attendees = incoming;
     } else {
-      // Read the live roster. $select keeps the payload small; attendees on a
-      // large recurring series is the only field we need here.
+      // Read the live roster. $select travels as a query-params argument, not
+      // inlined into the path: an occurrence id of a recurring series already
+      // carries its own encoding, and appending a query string to it makes
+      // Graph reject the whole id with "The Id is invalid." (Observed live
+      // 2026-09-15 on mGrant Team - Campfire.) getCalendarEvent has always
+      // passed $select this way; this path now matches it.
       const current = await callGraphAPI(
         accessToken,
         'GET',
-        `me/events/${eventId}?$select=attendees`
+        `me/events/${targetId}`,
+        null,
+        { $select: 'attendees' }
       );
       const existing = Array.isArray(current.attendees) ? current.attendees : [];
       const keyOf = a => a.emailAddress?.address?.toLowerCase();
@@ -569,12 +616,19 @@ async function updateCalendarEvent(accessToken, params) {
   await callGraphAPI(
     accessToken,
     'PATCH',
-    `me/events/${eventId}`,
+    `me/events/${targetId}`,
     update
   );
-  
+
+  // Say which one was changed. "Updated successfully" on an occurrence reads
+  // as if the whole series moved, which is how a single-date edit gets
+  // reported as done.
+  const scope = targetId === eventId
+    ? "Calendar event updated successfully!"
+    : "Calendar series updated successfully (applied to the whole recurring series, not one date).";
+
   return {
-    content: [{ type: "text", text: "Calendar event updated successfully!" }]
+    content: [{ type: "text", text: scope }]
   };
 }
 
@@ -630,6 +684,10 @@ const calendarTools = [
           type: "array",
           items: { type: "string" },
           description: "Attendee email addresses or objects (for create/find/update). On update, adds to the existing roster without cancelling the event — see attendeeMode."
+        },
+        applyToOccurrence: {
+          type: "boolean",
+          description: "Update only this single date of a recurring series. Default false: an attendee change on a recurring event resolves to the series master and applies to every occurrence. Set true only when one date should differ from the rest."
         },
         attendeeMode: {
           type: "string",
