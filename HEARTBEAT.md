@@ -131,3 +131,19 @@
 **Untested idea, do not promise it:** a `notifyAllAttendees` option that issues a no-op PATCH (e.g. rewrite `subject` to its current value) to force a broadcast. Unverified — test on a throwaway recurring event with two accounts before exposing it. Given this session shipped three bugs that passed unit tests and failed live, treat it as unproven until a real invite refreshes in a second mailbox.
 
 **Standing rule from this session:** reading back the id you just wrote is not verification — it returns your own mailbox copy. Verify a calendar change by reading a DIFFERENT occurrence, and confirm delivery by checking sent mail for the invite or cancellation.
+
+## 2026-09-15 — Prody comms learnings from the Khwahish onboarding
+
+**Signature (Nihaan-verified against his own):** flush stacked `<div>`s, `line-height:1.2-1.25`, `margin:0` on each line, 9pt, soft green `rgb(90,140,100)` — not the darker `rgb(15,92,26)`, which reads heavy. Shape: Warm regards / **Prody** / Resident Product AI Agent, mGrant / On behalf of Nihaan Mohammed | Product Manager / Dhwani RIS. No `---` rule, no URL line, no age line — all three were cut as clutter on 2026-09-15.
+
+**Identity wording:** "resident product AI agent", not "product analyst". Nihaan's phrasing.
+
+**Guard conflict to know about:** `mcp-office365-guard.py` requires an inline `— Prody` sign-off in the final paragraph, while `html-deliverable-guard.py` rejects em-dashes in visible prose. A local `.html` preview of an email therefore cannot carry the exact sent text. Keep the em-dash in the sent body, use a plain line in the preview file. Not a bug in either guard; they serve different surfaces.
+
+**Dual sign-off trap:** the email guard appends `— Prody` to the body. If the signature block also opens "Warm regards, Prody", the mail ships with two sign-offs. Fold the inline one into the closing sentence and let the block carry the rest.
+
+**Onboarding-email shape that Nihaan approved after four rejected drafts:** open with warmth and a reason the work matters (crores tracked on spreadsheets, 40 donors, 1,500 NGOs) before any logistics; name one recent joiner as the "nothing is too basic" contact rather than a senior person; every reading link states the question it answers and ties back to the product. A bare link is homework with no reason attached — Nihaan's words: "the IPN without any context is useless".
+
+**Seniority in contact lists:** do not list a Senior PM (Aastha) among day-to-day contacts. Route sync-ups to peers (Sunita, Aditya) and keep senior people on copy.
+
+**Verification rule earned the hard way:** reading back the id you just wrote proves nothing — it returns your own mailbox copy. For calendar work, read a DIFFERENT occurrence; for mail, check the sent folder for what recipients actually received.
