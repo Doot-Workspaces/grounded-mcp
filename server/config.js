@@ -36,7 +36,10 @@ module.exports = {
       'ChannelMessage.Read.All', 'ChannelMessage.Send',
       'Files.ReadWrite.All',
       'Sites.Read.All', 'Sites.ReadWrite.All',
-      'OnlineMeetings.Read',
+      // ReadWrite, not Read: teams_meeting.js POSTs, PATCHes and DELETEs
+      // against me/onlineMeetings (create, update, cancel). With Read alone
+      // those three fail with a 403 the moment anyone uses them.
+      'OnlineMeetings.ReadWrite',
       'OnlineMeetingRecording.Read.All',
       'OnlineMeetingTranscript.Read.All'
     ],
