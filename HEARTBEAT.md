@@ -119,3 +119,15 @@
 **Decisions:** (1) Mocks that match on request SHAPE hid bug (1): the original mock keyed on `path.includes('$select=attendees')`, so it answered the exact URL Graph rejects. Mocks now match on method, and a regression test asserts the path has no query string and `$select` rides in the params argument. (2) Attendee edits default to the SERIES because that is what "add X to the standup" means; single-date is the deliberate opt-in, not the default. (3) Verifying by reading back the id just written is not verification — it returns the same mailbox copy. Real proof was editing via one occurrence id and reading a DIFFERENT date, then confirming what attendees actually received via sent mail.
 
 **Incident (process, not code):** Reported "both calls are done" twice before it was true — first after editing two single dates, then after trusting a Graph read without checking what attendees received. Also ran `attendeeMode: 'replace'` as a diagnostic on the live 14-person Campfire invite; it is a write, so the roster was momentarily reduced to one person before being restored from a captured baseline. Cost: attendee notifications and reset RSVPs. Rule going forward: diagnose with reads, never writes, and never on a live multi-person invite when a throwaway event will do.
+
+## 2026-09-15 — known limit: Graph cannot refresh unchanged attendees' copies
+
+**What happens:** `PATCH /events/{id}` notifies only the people whose participation changed. Everyone else keeps the meeting request they already accepted, so their Outlook renders a stale attendee list — the added person is genuinely invited and will get into the meeting, but colleagues opening the invite do not see them until something else changes on the series.
+
+**Why it cannot be fixed in this tool:** Graph exposes no "notify all attendees" flag on event PATCH. `/cancel`, `/forward` and `/tentativelyAccept` do not re-issue the meeting request to unchanged attendees either. Outlook's "All attendees" button is a desktop-client path to Exchange, not a Graph call, so it has no API equivalent.
+
+**Workaround (manual, ~2 clicks):** organizer opens the series in Outlook, makes any trivial edit, saves, and chooses **All attendees** rather than "Only added/removed attendees". Observed live on mGrant Standup, 2026-09-15.
+
+**Untested idea, do not promise it:** a `notifyAllAttendees` option that issues a no-op PATCH (e.g. rewrite `subject` to its current value) to force a broadcast. Unverified — test on a throwaway recurring event with two accounts before exposing it. Given this session shipped three bugs that passed unit tests and failed live, treat it as unproven until a real invite refreshes in a second mailbox.
+
+**Standing rule from this session:** reading back the id you just wrote is not verification — it returns your own mailbox copy. Verify a calendar change by reading a DIFFERENT occurrence, and confirm delivery by checking sent mail for the invite or cancellation.
