@@ -1,0 +1,23 @@
+# Normalize all text files to LF in the repo; check out with LF on every platform.
+# Prevents the CRLF churn seen when the tree is copied through Windows or a sync tool.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Known-binary types — never touch line endings
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.exe  binary
+*.db   binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
