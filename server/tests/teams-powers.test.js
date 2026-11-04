@@ -21,7 +21,7 @@ const { callGraphAPI } = require('../utils/graph-api');
 
 const GUID = '11111111-2222-3333-4444-555555555555';
 const SELF = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const user = (id, name = 'Ankit Jangir') => ({ id: 0, mentionText: name, mentioned: { user: { id, displayName: name, userIdentityType: 'aadUser' } } });
+const user = (id, name = 'Person One') => ({ id: 0, mentionText: name, mentioned: { user: { id, displayName: name, userIdentityType: 'aadUser' } } });
 const text = r => r.content[0].text;
 
 let sent;
@@ -29,7 +29,7 @@ beforeEach(() => {
   sent = [];
   jest.clearAllMocks();
   callGraphAPI.mockImplementation(async (token, method, endpoint, body) => {
-    if (method === 'GET' && endpoint.startsWith('users/')) return { id: GUID, displayName: 'Ankit Jangir' };
+    if (method === 'GET' && endpoint.startsWith('users/')) return { id: GUID, displayName: 'Person One' };
     if (method === 'GET' && endpoint === 'me') return { id: SELF, displayName: 'Prody' };
     sent.push({ method, endpoint, body });
     return { id: 'msg-1' };
@@ -38,27 +38,27 @@ beforeEach(() => {
 
 describe('inspectMentions', () => {
   it('accepts a matching tag and GUID entry', () => {
-    expect(inspectMentions('<div><at id="0">Ankit Jangir</at> hi</div>', [user(GUID)]).errors).toEqual([]);
+    expect(inspectMentions('<div><at id="0">Person One</at> hi</div>', [user(GUID)]).errors).toEqual([]);
   });
   it('rejects a tag with no entry and an entry with no tag', () => {
     expect(inspectMentions('<at id="0">A</at>', []).errors.join()).toMatch(/no matching mentions entry/);
     expect(inspectMentions('hello', [user(GUID)]).errors.join()).toMatch(/no <at id="0">/);
   });
   it('rejects an email in mentioned.user.id (the 2026-07-20 silent no-ping)', () => {
-    expect(inspectMentions('<at id="0">A</at>', [user('ankit@dhwaniris.com')]).errors.join()).toMatch(/AAD GUID/);
+    expect(inspectMentions('<at id="0">A</at>', [user('person.one@example.org')]).errors.join()).toMatch(/AAD GUID/);
   });
   it('rejects mentions JSON pasted into the content', () => {
     expect(inspectMentions('hi {"mentions": []}', []).errors.join()).toMatch(/top-level `mentions`/);
   });
   it('warns on a plain @Name but not on an email address', () => {
     expect(inspectMentions('<div>ping @Ankit please</div>', []).warnings.join()).toMatch(/plain-text/);
-    expect(inspectMentions('<div>mail ankit@dhwaniris.com</div>', []).warnings).toEqual([]);
+    expect(inspectMentions('<div>mail person.one@example.org</div>', []).warnings).toEqual([]);
   });
 });
 
 describe('send_message mention preparation', () => {
   it('resolves an email id to the AAD GUID before sending', async () => {
-    await handleTeamsChat({ operation: 'send_message', chatId: 'c1', content: '<at id="0">Ankit Jangir</at> hi', mentions: [user('ankit.jangir@dhwaniris.com')] });
+    await handleTeamsChat({ operation: 'send_message', chatId: 'c1', content: '<at id="0">Person One</at> hi', mentions: [user('person.one@example.org')] });
     const post = sent.find(r => r.method === 'POST');
     expect(post.body.mentions[0].mentioned.user.id).toBe(GUID);
   });
@@ -71,7 +71,7 @@ describe('send_message mention preparation', () => {
 
 describe('channel messages carry mentions', () => {
   it('create_message passes mentions through (it used to drop them)', async () => {
-    await handleTeamsChannel({ operation: 'create_message', teamId: 't', channelId: 'ch', content: '<at id="0">Ankit Jangir</at> hi', mentions: [user(GUID)] });
+    await handleTeamsChannel({ operation: 'create_message', teamId: 't', channelId: 'ch', content: '<at id="0">Person One</at> hi', mentions: [user(GUID)] });
     expect(sent[0].body.mentions).toHaveLength(1);
   });
   it('reply_to_message rejects a mismatched mention', async () => {
@@ -83,7 +83,7 @@ describe('channel messages carry mentions', () => {
 
 describe('preview_message', () => {
   it('sends nothing and reports verdict, plain text and HTML', async () => {
-    const r = await handleTeamsChat({ operation: 'preview_message', content: '<at id="0">Ankit Jangir</at> hi', mentions: [user('ankit.jangir@dhwaniris.com')] });
+    const r = await handleTeamsChat({ operation: 'preview_message', content: '<at id="0">Person One</at> hi', mentions: [user('person.one@example.org')] });
     expect(sent).toHaveLength(0);
     expect(text(r)).toMatch(/Verdict: OK TO SEND/);
     expect(text(r)).toMatch(/Mentions that would ping: 1/);
