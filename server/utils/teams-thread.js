@@ -7,8 +7,9 @@
  * System events and deleted messages never count.
  */
 
+// Only user-authored messages count. Bot and app posts (Workflows, connectors) have no from.user.
 function authorId(m) {
-  return (m.from && m.from.user && m.from.user.id) || (m.from && m.from.application && m.from.application.id) || null;
+  return (m.from && m.from.user && m.from.user.id) || null;
 }
 
 function authorName(m) {

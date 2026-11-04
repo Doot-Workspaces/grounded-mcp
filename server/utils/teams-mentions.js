@@ -13,7 +13,7 @@ const { callGraphAPI } = require('./graph-api');
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 const AT_TAG_RE = /<at\s+id=["']?(\d+)["']?[^>]*>([\s\S]*?)<\/at>/gi;
-const MENTIONS_JSON_RE = /["']?(mentions|mentionText)["']?\s*:/i;
+const MENTIONS_JSON_RE = /["'](mentions|mentionText)["']\s*:|\bmentions\s*:\s*[\[{]/i;
 const PLAIN_AT_RE = /(^|[\s>(])@[A-Za-z][\w.'-]*/;
 
 function atTags(html) {

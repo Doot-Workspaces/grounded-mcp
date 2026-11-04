@@ -142,3 +142,21 @@ describe('findMeetingTimes conflict surfacing', () => {
     expect(text(r)).not.toMatch(/a@x.com:/);
   });
 });
+
+describe('review follow-ups', () => {
+  const { inspectMentions } = require('../utils/teams-mentions');
+  const { analyzeThread } = require('../utils/teams-thread');
+  test('prose containing "mentions:" is not flagged as mentions JSON', () => {
+    expect(inspectMentions('<div>Key mentions: the board report</div>', []).errors).toEqual([]);
+    expect(inspectMentions('<div>Two mentions: one in the MoM</div>', []).errors).toEqual([]);
+  });
+  test('a quoted mentions key is still flagged', () => {
+    expect(inspectMentions('<div>{"mentions": [1]}</div>', []).errors.join()).toMatch(/mentions JSON/);
+  });
+  test('bot posts never take the ball', () => {
+    const t = (min, from) => ({ messageType: 'message', createdDateTime: new Date(Date.UTC(2026, 0, 1, 10, min)).toISOString(), from, body: { content: 'x' } });
+    const me = { user: { id: 'self', displayName: 'Me' } };
+    const bot = { application: { id: 'app1', displayName: 'Workflows' } };
+    expect(analyzeThread([t(0, { user: { id: 'other', displayName: 'O' } }), t(1, me), t(2, bot)], 'self').ball).not.toBe('counterparty');
+  });
+});

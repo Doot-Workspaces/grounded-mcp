@@ -510,7 +510,7 @@ async function sendChatMessage(accessToken, params) {
 
 /**
  * Dry run of send_message: renders, resolves and checks, sends nothing.
- * The returned HTML is what Teams would receive; show Nihaan the plain text.
+ * The returned HTML is what Teams would receive; show the approver the plain text.
  */
 async function previewChatMessage(accessToken, params) {
   const { content, mentions } = params;
@@ -530,7 +530,7 @@ async function previewChatMessage(accessToken, params) {
   }
   const check = inspectMentions(html, resolved);
   const plain = html.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-  const verdict = check.errors.length ? 'WOULD FAIL' : 'OK TO SEND (after Nihaan says yes)';
+  const verdict = check.errors.length ? 'WOULD FAIL' : 'OK TO SEND (after the approver says yes)';
   const text = [
     `Verdict: ${verdict}`,
     check.errors.length ? `Errors:\n- ${check.errors.join('\n- ')}` : null,
@@ -556,7 +556,7 @@ async function getThreadState(accessToken, params) {
     'GET',
     `chats/${chatId}/messages`,
     null,
-    { $top: Math.min(Math.max(parseInt(maxResults, 10) || 20, 1), 50) }
+    { $top: Math.min(Math.max(parseInt(maxResults, 10) || 20, 1), 50), $orderby: 'createdDateTime desc' }
   );
   const state = analyzeThread((response && response.value) || [], me.id);
   return { content: [{ type: "text", text: formatThreadState(state) }] };

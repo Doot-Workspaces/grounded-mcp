@@ -14,7 +14,7 @@
 - Tests: 183 baseline, 199 now, all green (`cd server && npx jest`). The two failures noted in the 2026-08-18 entry no longer reproduce on origin/main.
 
 ### Decisions
-- **Mechanical lessons became tool behaviour; judgment lessons went to Prody** (`prody-dris-agent` `references/teams-comms-powers.md`). Tone by audience, chat-wide pings, one-message-not-a-series and follow-up cadence cannot be checked by a server.
+- **Mechanical lessons became tool behaviour; judgment lessons went to Prody** (the downstream agent repo (`references/teams-comms-powers.md`)). Tone by audience, chat-wide pings, one-message-not-a-series and follow-up cadence cannot be checked by a server.
 - **Strict GUID check in the MCP, not only in the Prody guard.** Every MCP consumer hits the silent no-ping, so the rule belongs here (universal), while Prody's deploy-format guard stays in the agent repo.
 - Lessons already enforced were not rebuilt: `<div>`/`<br>` rendering, markdown warning, IST timezone mapping, `Z` suffix on `find` windows, edit-preserves-mentions note.
 - No change to `.github/workflows`: the full Jest run already includes the new test file.
