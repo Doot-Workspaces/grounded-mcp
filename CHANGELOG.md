@@ -10,7 +10,7 @@ Each item comes from a repeated Teams or calendar failure seen in production use
 - **Channel `create_message` carried no mentions.** It silently dropped the parameter; it and `reply_to_message` now run the same check and pass mentions through.
 - **`teams_chat` `preview_message`.** Dry run for the draft-then-yes gate: renders, resolves mentions, runs the checks and returns a verdict, the plain-text preview and the HTML. Sends nothing.
 - **`teams_chat` `thread_state`.** Reads the last messages (up to 50) and reports who owns the ball, our unanswered burst, and mentions of us since we last spoke. System events never count. Only user-authored messages count, so bot and Workflows posts never take the ball. Messages are read newest-created first. Rule set 2026-05-22: the last human message owns the ball.
-- **`calendar` `find` shows conflicts.** Slots with confidence below 100 print CONFLICT and name each non-free attendee; tentative is labelled as counted busy by Graph but possibly usable. Source: `reference_m365_comms_playbook.md` ("Most attendees" is a hard conflict, 2026-04-10; Tentative is busy).
+- **`calendar` `find` shows conflicts.** Slots with confidence below 100 print CONFLICT and name each non-free attendee; tentative is labelled as counted busy by Graph but possibly usable. Rule: "Most attendees" is a hard conflict and Tentative counts as busy.
 - **Tests**: `server/tests/teams-powers.test.js` (16 tests). Two assertions in `teams-chat-mentions.test.js` now use a GUID-shaped id instead of a placeholder string.
 
 ### Behaviour change

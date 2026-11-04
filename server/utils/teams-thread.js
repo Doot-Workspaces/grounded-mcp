@@ -1,7 +1,7 @@
 /**
  * Thread-state analysis for a Teams chat: who owns the ball.
  *
- * Rule (Nihaan, 2026-05-22): the last human message decides. If the
+ * Rule: the last human message decides. If the
  * counterparty wrote last, the next reply is ours; a burst of our own
  * messages without an answer still leaves the ball with the counterparty.
  * System events and deleted messages never count.

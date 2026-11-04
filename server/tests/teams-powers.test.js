@@ -157,6 +157,9 @@ describe('review follow-ups', () => {
     const t = (min, from) => ({ messageType: 'message', createdDateTime: new Date(Date.UTC(2026, 0, 1, 10, min)).toISOString(), from, body: { content: 'x' } });
     const me = { user: { id: 'self', displayName: 'Me' } };
     const bot = { application: { id: 'app1', displayName: 'Workflows' } };
-    expect(analyzeThread([t(0, { user: { id: 'other', displayName: 'O' } }), t(1, me), t(2, bot)], 'self').ball).not.toBe('counterparty');
+    expect(analyzeThread([t(0, { user: { id: 'other', displayName: 'O' } }), t(1, me), t(2, bot)], 'self').ball).toBe('self');
+  });
+  test('unquoted mentions: [ shape is flagged', () => {
+    expect(inspectMentions('<div>mentions: [{"id":1}]</div>', []).errors.join()).toMatch(/mentions JSON/);
   });
 });
