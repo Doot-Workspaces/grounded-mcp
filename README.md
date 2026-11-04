@@ -34,6 +34,8 @@ Additions on top of the upstream server:
 | **Operational security docs** | RULES.md (AI messaging safety principles), SECURITY.md (data flow, incident response), SETUP-GUIDE.md (step-by-step Azure setup) |
 | **OUTBOUND_SIGN_OFF env control** | Centralized sign-off behavior; set to empty string for clean-pipe mode (no sign-off appended) |
 | **Runtime input validation** | Every `tools/call` is validated against the tool's published `inputSchema` before reaching the handler; invalid arguments return a clear `InvalidParams` error so the LLM can self-correct (`server/utils/validate-input.js`) |
+| **Teams sending checks** | `teams_chat` `preview_message` is a dry run (render, resolve mentions, check). `thread_state` reads the last messages and says who owns the ball. Every send and edit resolves email mention ids to AAD GUIDs and fails before sending when an `<at>` tag and a `mentions` entry disagree. Channel `create_message` and `reply_to_message` carry mentions (`server/utils/teams-mentions.js`, `server/utils/teams-thread.js`) |
+| **Calendar conflict surfacing** | `calendar` `find` marks any slot below 100 confidence as CONFLICT and names the busy or tentative attendee |
 | **Current MCP transport** | Server speaks the current Streamable HTTP transport (spec revision 2025-11-25) on a single `/mcp` endpoint. Deprecated SSE transport removed. |
 
 ## Architecture
@@ -235,7 +237,7 @@ grounded-mcp/
     ├── todo/             ← Microsoft To Do tools
     ├── groups/           ← M365 group tools
     ├── notifications/    ← Notification tools
-    └── utils/            ← Shared utilities (Graph API, error handling)
+    └── utils/            ← Shared utilities (Graph API, error handling, Teams mention and thread helpers)
 ```
 
 ## Safety Recommendations

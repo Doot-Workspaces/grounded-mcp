@@ -46,7 +46,7 @@ describe('sendChatMessage — mentions plumbing', () => {
         mentionText: 'Nihaan',
         mentioned: {
           user: {
-            id: 'user-guid-123',
+            id: '11111111-2222-3333-4444-555555555555',
             displayName: 'Nihaan Mohammed',
             userIdentityType: 'aadUser'
           }
@@ -89,7 +89,7 @@ describe('updateChatMessage — mentions plumbing (bug fix)', () => {
         mentionText: 'Nihaan',
         mentioned: {
           user: {
-            id: 'user-guid-123',
+            id: '11111111-2222-3333-4444-555555555555',
             displayName: 'Nihaan Mohammed',
             userIdentityType: 'aadUser'
           }

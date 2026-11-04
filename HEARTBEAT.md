@@ -1,5 +1,30 @@
 # grounded-mcp — HEARTBEAT (session handoff)
 
+**Last updated:** 2026-11-05
+**Last operator:** Watney (Sonnet 5.5, overnight autonomous run for Nihaan)
+**Next session:** PR `feat/learnings-2026-11` awaits review and merge by Ankit. After merge, restart the MCP server so the running process loads it.
+
+---
+
+## Session 2026-11-05 — Teams sending checks, thread state, calendar conflicts
+
+### Done
+- Worktree `~/Workspaces/_wt/grounded-mcp-learnings-2026-11` off `origin/main` (5dd0926). The live repo `~/Workspaces/grounded-mcp` was not touched.
+- Added `utils/teams-mentions.js` (resolve + validate), `utils/teams-thread.js` (ball ownership), `preview_message` and `thread_state` on `teams_chat`, mentions on channel `create_message`, conflict lines in `calendar` `find`. Detail in CHANGELOG.
+- Tests: 183 baseline, 199 now, all green (`cd server && npx jest`). The two failures noted in the 2026-08-18 entry no longer reproduce on origin/main.
+
+### Decisions
+- **Mechanical lessons became tool behaviour; judgment lessons went to Prody** (`prody-dris-agent` `references/teams-comms-powers.md`). Tone by audience, chat-wide pings, one-message-not-a-series and follow-up cadence cannot be checked by a server.
+- **Strict GUID check in the MCP, not only in the Prody guard.** Every MCP consumer hits the silent no-ping, so the rule belongs here (universal), while Prody's deploy-format guard stays in the agent repo.
+- Lessons already enforced were not rebuilt: `<div>`/`<br>` rendering, markdown warning, IST timezone mapping, `Z` suffix on `find` windows, edit-preserves-mentions note.
+- No change to `.github/workflows`: the full Jest run already includes the new test file.
+
+### Pending
+- Ankit: review and merge. Nihaan: restart Claude Code after merge.
+- Not built: conversation-level (`@ChatName`) mentions stay unverified; find_rooms still needs `Place.Read.All` consent.
+
+---
+
 **Last updated:** 2026-08-18
 **Last operator:** CC (Opus 5, dispatched Sonnet sub-agent for the code change)
 **Next session:** PR #10 merged to `main` (squash, `0759a5a`), local in sync. Nihaan restarts Claude Code tonight so the running MCP process picks up the new code. Two pre-existing test failures remain untouched — see Pending.

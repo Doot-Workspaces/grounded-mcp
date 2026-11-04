@@ -384,12 +384,27 @@ function formatFindMeetingTimesResponse(response) {
     };
   }
 
+  // "Most attendees" (confidence below 100) means a required attendee has a
+  // hard conflict in that window: never present it as clean. Tentative counts
+  // as busy to Graph but may be usable, so it is named, not hidden.
   const summary = response.meetingTimeSuggestions.map((suggestion, idx) => {
     const slot = suggestion.meetingTimeSlot;
     const formattedStart = config.formatDateTime(slot.start.dateTime, slot.start.timeZone);
     const formattedEnd = config.formatDateTime(slot.end.dateTime, slot.end.timeZone);
     const reason = suggestion.suggestionReason || 'Recommended slot';
-    return `${idx + 1}. ${formattedStart} - ${formattedEnd} (${reason})`;
+    const availability = suggestion.attendeeAvailability || [];
+    const blockers = availability.filter(a => a.availability && a.availability !== 'free');
+    const confidence = typeof suggestion.confidence === 'number' ? suggestion.confidence : null;
+    let line = `${idx + 1}. ${formattedStart} - ${formattedEnd} (${reason})`;
+    if ((confidence !== null && confidence < 100) || blockers.length) {
+      line += `\n   CONFLICT: not every attendee is free (confidence ${confidence === null ? 'unknown' : confidence}).`;
+      for (const b of blockers) {
+        const who = (b.attendee && b.attendee.emailAddress && b.attendee.emailAddress.address) || 'attendee';
+        const note = b.availability === 'tentative' ? 'tentative (Graph counts this as busy; may be usable, confirm with them)' : b.availability;
+        line += `\n   - ${who}: ${note}`;
+      }
+    }
+    return line;
   }).join('\n');
 
   return {
