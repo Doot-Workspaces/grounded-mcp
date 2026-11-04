@@ -51,7 +51,7 @@ describe('inspectMentions', () => {
     expect(inspectMentions('hi {"mentions": []}', []).errors.join()).toMatch(/top-level `mentions`/);
   });
   it('warns on a plain @Name but not on an email address', () => {
-    expect(inspectMentions('<div>ping @Ankit please</div>', []).warnings.join()).toMatch(/plain-text/);
+    expect(inspectMentions('<div>ping @Person please</div>', []).warnings.join()).toMatch(/plain-text/);
     expect(inspectMentions('<div>mail person.one@example.org</div>', []).warnings).toEqual([]);
   });
 });
@@ -63,7 +63,7 @@ describe('send_message mention preparation', () => {
     expect(post.body.mentions[0].mentioned.user.id).toBe(GUID);
   });
   it('sends nothing when a tag has no entry', async () => {
-    const r = await handleTeamsChat({ operation: 'send_message', chatId: 'c1', content: '<at id="0">Ankit</at> hi' });
+    const r = await handleTeamsChat({ operation: 'send_message', chatId: 'c1', content: '<at id="0">Person</at> hi' });
     expect(text(r)).toMatch(/Mention check failed, nothing was sent/);
     expect(sent).toHaveLength(0);
   });
