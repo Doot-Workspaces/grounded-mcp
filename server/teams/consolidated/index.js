@@ -44,6 +44,11 @@ const channelToolSchema = {
         'list_messages', 'get_message', 'create_message', 'reply_to_message',
         'list_members', 'add_member', 'remove_member', 'list_tabs'
       ]
+    },
+    mentions: {
+      type: 'array',
+      description: 'For create_message / reply_to_message: same shape and rules as teams_chat mentions. Each entry needs a matching <at id="N">Name</at> tag in content. mentioned.user.id may be an email, which is resolved to the AAD id. A mismatch fails before sending.',
+      items: { type: 'object' }
     }
   }
 };
@@ -57,7 +62,7 @@ const chatToolSchema = {
       description: 'The operation to perform',
       enum: [
         'list', 'create', 'get', 'update', 'delete',
-        'list_messages', 'get_message', 'send_message', 'update_message', 'delete_message',
+        'list_messages', 'get_message', 'preview_message', 'thread_state', 'send_message', 'update_message', 'delete_message',
         'list_members', 'add_member', 'remove_member'
       ]
     },
@@ -92,7 +97,7 @@ const chatToolSchema = {
     },
     mentions: {
       type: 'array',
-      description: 'Array of mention objects for send_message / update_message — REQUIRED when tagging people. Bolding a name (<b>Name</b>) is NOT a mention: it renders bold text but fires zero notifications and carries no identifier. To actually ping someone you must (a) pass a mentions array entry with their AAD user id and (b) include a matching <at id="N">DisplayName</at> tag in the HTML content — the id must match on both sides. Get AAD ids via the directory tool (lookup_user). Each item shape: { id: number, mentionText: string, mentioned: { user: { id: string, displayName: string, userIdentityType: "aadUser" } } }. Edit-vs-notify: update_message preserves mentions if re-passed, but never re-triggers Teams notifications — if the first send missed the mentions, the recovery is to update the original AND send a short fresh follow-up with mentions to actually ping.',
+      description: 'Array of mention objects for send_message / update_message — REQUIRED when tagging people. Bolding a name (<b>Name</b>) is NOT a mention: it renders bold text but fires zero notifications and carries no identifier. To actually ping someone you must (a) pass a mentions array entry with their AAD user id and (b) include a matching <at id="N">DisplayName</at> tag in the HTML content — the id must match on both sides. mentioned.user.id may be an email; it is resolved to the AAD id, and a tag/entry mismatch fails before sending. Get AAD ids via the directory tool (lookup_user). Each item shape: { id: number, mentionText: string, mentioned: { user: { id: string, displayName: string, userIdentityType: "aadUser" } } }. Edit-vs-notify: update_message preserves mentions if re-passed, but never re-triggers Teams notifications — if the first send missed the mentions, the recovery is to update the original AND send a short fresh follow-up with mentions to actually ping.',
       items: { type: 'object' }
     },
     userId: {
@@ -109,7 +114,7 @@ const chatToolSchema = {
     },
     maxResults: {
       type: 'number',
-      description: 'Max results to return (for list, list_messages)'
+      description: 'Max results to return (for list, list_messages, thread_state window up to 50)'
     }
   }
 };
@@ -130,7 +135,7 @@ module.exports = [
   },
   {
     name: 'teams_chat',
-    description: 'Teams chat operations: list, create, get, update, delete chats and manage messages and members',
+    description: 'Teams chat operations: list, create, get, update, delete chats and manage messages and members. Before drafting a reply run thread_state (who owns the ball); before sending run preview_message (dry run: render, resolve mentions, check).',
     inputSchema: chatToolSchema,
     handler: safeTool('teams_chat', handleTeamsChat)
   }

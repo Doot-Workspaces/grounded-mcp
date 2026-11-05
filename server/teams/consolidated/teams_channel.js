@@ -15,6 +15,7 @@
 const { ensureAuthenticated } = require('../../auth');
 const { callGraphAPI } = require('../../utils/graph-api');
 const { renderOutbound } = require('../../utils/outbound-format');
+const { prepareMentions } = require('../../utils/teams-mentions');
 const config = require('../../config');
 
 
@@ -410,7 +411,7 @@ async function getChannelMessage(accessToken, params) {
  * Create a new channel message
  */
 async function createChannelMessage(accessToken, params) {
-  const { teamId, channelId, content, attachments } = params;
+  const { teamId, channelId, content, attachments, mentions } = params;
   
   if (!teamId || !channelId || !content) {
     return {
@@ -436,6 +437,12 @@ async function createChannelMessage(accessToken, params) {
       const { name, contentUrl, contentType } = attachment;
       return { name, contentUrl, contentType };
     });
+  }
+
+  // create_message used to drop `mentions` silently; it now carries them.
+  const prepared = await prepareMentions(accessToken, formattedContent, mentions);
+  if (prepared.mentions) {
+    messageData.mentions = prepared.mentions;
   }
 
   const response = await callGraphAPI(
@@ -487,8 +494,9 @@ async function replyToChannelMessage(accessToken, params) {
 
   // Re-pass mentions — Teams does not re-trigger notifications on reply edits,
   // but mentions must be included or they vanish from the visible message text.
-  if (mentions && Array.isArray(mentions) && mentions.length > 0) {
-    replyData.mentions = mentions;
+  const prepared = await prepareMentions(accessToken, formattedContent, mentions);
+  if (prepared.mentions) {
+    replyData.mentions = prepared.mentions;
   }
 
   const response = await callGraphAPI(

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added — Teams sending checks and conflict surfacing (2026-11-05)
+
+Each item comes from a repeated Teams or calendar failure seen in production use.
+
+- **Mention check on every Teams send and edit** (`server/utils/teams-mentions.js`). Email ids in `mentioned.user.id` are resolved to AAD GUIDs (read-only `users/{upn}` lookup). A send or edit now fails before the message is posted when an `<at id="N">` tag has no `mentions` entry, an entry has no tag, an id repeats, a user id is not a GUID, or mentions JSON sits inside the content. A plain `@Name` produces a warning in `preview_message` only. The mentions-JSON check needs a quoted key or a `mentions: [` / `mentions: {` shape, so prose such as "Key mentions: the board report" sends normally. Source: the 2026-07-20 email-in-id near miss.
+- **Channel `create_message` carried no mentions.** It silently dropped the parameter; it and `reply_to_message` now run the same check and pass mentions through.
+- **`teams_chat` `preview_message`.** Dry run for the draft-then-yes gate: renders, resolves mentions, runs the checks and returns a verdict, the plain-text preview and the HTML. Sends nothing.
+- **`teams_chat` `thread_state`.** Reads the last messages (up to 50) and reports who owns the ball, our unanswered burst, and mentions of us since we last spoke. System events never count. Only user-authored messages count, so bot and Workflows posts never take the ball. Messages are read newest-created first. Rule set 2026-05-22: the last human message owns the ball.
+- **`calendar` `find` shows conflicts.** Slots with confidence below 100 print CONFLICT and name each non-free attendee; tentative is labelled as counted busy by Graph but possibly usable. Rule: "Most attendees" is a hard conflict and Tentative counts as busy.
+- **Tests**: `server/tests/teams-powers.test.js` (20 tests). Two assertions in `teams-chat-mentions.test.js` now use a GUID-shaped id instead of a placeholder string.
+
+### Behaviour change
+
+A send that previously went out with a mismatched tag and mentions entry, or a non-GUID mention id, is now rejected with `Mention check failed, nothing was sent`. Callers must pass a GUID or an email.
+
 ### Added — consolidation from runtime fork
 
 This release brings Grounded MCP in line with work developed in the downstream

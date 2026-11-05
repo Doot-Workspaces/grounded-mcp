@@ -13,7 +13,9 @@
 const { ensureAuthenticated } = require('../../auth');
 const { callGraphAPI } = require('../../utils/graph-api');
 const config = require('../../config');
-const { renderOutbound } = require('../../utils/outbound-format');
+const { renderOutbound, detectMarkdown } = require('../../utils/outbound-format');
+const { prepareMentions, resolveMentionUsers, inspectMentions } = require('../../utils/teams-mentions');
+const { analyzeThread, formatThreadState } = require('../../utils/teams-thread');
 
 
 /**
@@ -53,7 +55,7 @@ async function handleTeamsChat(args) {
     return {
       content: [{ 
         type: "text", 
-        text: "Missing required parameter: operation. Valid operations are: list, create, get, update, delete, list_messages, get_message, send_message, update_message, delete_message, list_members, add_member, remove_member" 
+        text: "Missing required parameter: operation. Valid operations are: list, create, get, update, delete, list_messages, get_message, preview_message, thread_state, send_message, update_message, delete_message, list_members, add_member, remove_member" 
       }]
     };
   }
@@ -79,6 +81,10 @@ async function handleTeamsChat(args) {
         return await listChatMessages(accessToken, params);
       case 'get_message':
         return await getChatMessage(accessToken, params);
+      case 'preview_message':
+        return await previewChatMessage(accessToken, params);
+      case 'thread_state':
+        return await getThreadState(accessToken, params);
       case 'send_message':
         return await sendChatMessage(accessToken, params);
       case 'update_message':
@@ -95,7 +101,7 @@ async function handleTeamsChat(args) {
         return {
           content: [{ 
             type: "text", 
-            text: `Invalid operation: ${operation}. Valid operations are: list, create, get, update, delete, list_messages, get_message, send_message, update_message, delete_message, list_members, add_member, remove_member` 
+            text: `Invalid operation: ${operation}. Valid operations are: list, create, get, update, delete, list_messages, get_message, preview_message, thread_state, send_message, update_message, delete_message, list_members, add_member, remove_member` 
           }]
         };
     }
@@ -479,11 +485,12 @@ async function sendChatMessage(accessToken, params) {
     });
   }
 
-  // Add mentions if present — enables true @mention pings in Teams
+  // Mentions: email ids are resolved to AAD GUIDs, then the <at id="N"> tags and
+  // the mentions array are checked against each other before anything is sent.
   // Each mention: { id: number, mentionText: string, mentioned: { user: { id, displayName, userIdentityType } } }
-  // The content HTML must include <at id="N">DisplayName</at> tags matching each mention's id
-  if (mentions && Array.isArray(mentions) && mentions.length > 0) {
-    messageData.mentions = mentions;
+  const prepared = await prepareMentions(accessToken, formattedContent, mentions);
+  if (prepared.mentions) {
+    messageData.mentions = prepared.mentions;
   }
   
   const response = await callGraphAPI(
@@ -499,6 +506,60 @@ async function sendChatMessage(accessToken, params) {
       text: `Message sent successfully!\nID: ${response.id}` 
     }]
   };
+}
+
+/**
+ * Dry run of send_message: renders, resolves and checks, sends nothing.
+ * The returned HTML is what Teams would receive; show the approver the plain text.
+ */
+async function previewChatMessage(accessToken, params) {
+  const { content, mentions } = params;
+  if (!content) {
+    return { content: [{ type: "text", text: "Missing required parameter: content." }] };
+  }
+  const warnings = [];
+  if (detectMarkdown(content)) {
+    warnings.push('Markdown detected. Teams shows it as literal characters; use <b> and <br>.');
+  }
+  const { html } = renderOutbound({ content, target: 'teams' });
+  let resolved = mentions;
+  try {
+    resolved = await resolveMentionUsers(accessToken, mentions);
+  } catch (err) {
+    return { content: [{ type: "text", text: `Preview failed: ${err.message}` }] };
+  }
+  const check = inspectMentions(html, resolved);
+  const plain = html.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  const verdict = check.errors.length ? 'WOULD FAIL' : 'OK TO SEND (after the approver says yes)';
+  const text = [
+    `Verdict: ${verdict}`,
+    check.errors.length ? `Errors:\n- ${check.errors.join('\n- ')}` : null,
+    (warnings.length + check.warnings.length) ? `Warnings:\n- ${[...warnings, ...check.warnings].join('\n- ')}` : null,
+    `Mentions that would ping: ${(resolved || []).length}`,
+    `\nPlain-text preview:\n${plain}`,
+    `\nRendered HTML:\n${html}`
+  ].filter(Boolean).join('\n');
+  return { content: [{ type: "text", text }] };
+}
+
+/**
+ * Who owns the ball in this chat: read the last messages before drafting.
+ */
+async function getThreadState(accessToken, params) {
+  const { chatId, maxResults = 20 } = params;
+  if (!chatId) {
+    return { content: [{ type: "text", text: "Missing required parameter: chatId." }] };
+  }
+  const me = await callGraphAPI(accessToken, 'GET', 'me', null, { $select: 'id,displayName' });
+  const response = await callGraphAPI(
+    accessToken,
+    'GET',
+    `chats/${chatId}/messages`,
+    null,
+    { $top: Math.min(Math.max(parseInt(maxResults, 10) || 20, 1), 50), $orderby: 'createdDateTime desc' }
+  );
+  const state = analyzeThread((response && response.value) || [], me.id);
+  return { content: [{ type: "text", text: formatThreadState(state) }] };
 }
 
 /**
@@ -527,8 +588,9 @@ async function updateChatMessage(accessToken, params) {
 
   // Re-pass mentions on update — Teams does not re-trigger notifications on edits,
   // but mentions must be included or they vanish from the visible message text.
-  if (mentions && Array.isArray(mentions) && mentions.length > 0) {
-    messageData.mentions = mentions;
+  const prepared = await prepareMentions(accessToken, formattedContent, mentions);
+  if (prepared.mentions) {
+    messageData.mentions = prepared.mentions;
   }
 
   await callGraphAPI(
